@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TensorX — Collateral Valuation &amp; Liquidity Engine</title>
+  <meta name="description" content="Range-based, explainable collateral valuation with liquidity-aware exit estimation. Transparent outputs anchored to circle rates." />
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+</head>
+<body>
+
+<div class="app-container">
+
+  <!-- ── Header ──────────────────────────────────────────────── -->
+  <header class="app-header">
+    <div class="logo-row">
+      <div class="logo-icon">⚡</div>
+      <h1>TensorX</h1>
+    </div>
+    <p>Collateral Valuation &amp; Liquidity Engine — range-based, explainable property intelligence</p>
+  </header>
+
+  <!-- ── Pipeline Status Bar ─────────────────────────────────── -->
+  <div class="pipeline-bar" id="pipelineBar">
+    <div class="pipeline-step" data-step="input">
+      <span class="step-dot"></span> Input
+    </div>
+    <div class="pipeline-step" data-step="geocode">
+      <span class="step-dot"></span> Geocode
+    </div>
+    <div class="pipeline-step" data-step="features">
+      <span class="step-dot"></span> Features
+    </div>
+    <div class="pipeline-step" data-step="valuation">
+      <span class="step-dot"></span> Valuation
+    </div>
+    <div class="pipeline-step" data-step="liquidity">
+      <span class="step-dot"></span> Liquidity
+    </div>
+    <div class="pipeline-step" data-step="checks">
+      <span class="step-dot"></span> Checks
+    </div>
+    <div class="pipeline-step" data-step="output">
+      <span class="step-dot"></span> Output
+    </div>
+  </div>
+
+  <!-- ── Main Grid ───────────────────────────────────────────── -->
+  <div class="main-grid">
+
+    <!-- ── INPUT FORM ──────────────────────────────────────────── -->
+    <div class="card" id="inputCard">
+      <div class="card-header">
+        <span class="icon">📋</span>
+        <h2>Property Input</h2>
+      </div>
+
+      <form id="valuationForm" autocomplete="off">
+
+        <!-- Location -->
+        <div class="form-section">
+          <div class="form-section-title">📍 Location</div>
+          <div class="form-group full-width" style="margin-bottom:0.75rem">
+            <label for="address">Address *</label>
+            <input type="text" id="address" name="address" placeholder="e.g. Koramangala, Bangalore" required />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="lat">Latitude</label>
+              <input type="number" id="lat" name="lat" step="any" placeholder="12.9352" />
+            </div>
+            <div class="form-group">
+              <label for="lng">Longitude</label>
+              <input type="number" id="lng" name="lng" step="any" placeholder="77.6245" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Property Type -->
+        <div class="form-section">
+          <div class="form-section-title">🏗️ Property Classification</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="property_type">Type *</label>
+              <select id="property_type" name="property_type" required>
+                <option value="">Select type</option>
+                <option value="Residential">Residential</option>
+                <option value="Commercial">Commercial</option>
+                <option value="Industrial">Industrial</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="sub_type">Sub-type *</label>
+              <select id="sub_type" name="sub_type" required>
+                <option value="">Select sub-type</option>
+                <option value="Apartment">Apartment</option>
+                <option value="Detached House">Detached House</option>
+                <option value="Plot">Plot</option>
+                <option value="Shop">Shop</option>
+                <option value="Warehouse">Warehouse</option>
+                <option value="Office">Office</option>
+                <option value="Penthouse">Penthouse</option>
+                <option value="Studio">Studio</option>
+                <option value="Duplex">Duplex</option>
+                <option value="Farmhouse">Farmhouse</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Size -->
+        <div class="form-section">
+          <div class="form-section-title">📐 Dimensions</div>
+          <div class="form-row three-col">
+            <div class="form-group">
+              <label for="carpet_area">Carpet (sqft) *</label>
+              <input type="number" id="carpet_area" name="carpet_area" min="0" placeholder="1050" />
+            </div>
+            <div class="form-group">
+              <label for="builtup_area">Built-up (sqft)</label>
+              <input type="number" id="builtup_area" name="builtup_area" min="0" placeholder="1250" />
+            </div>
+            <div class="form-group">
+              <label for="land_parcel">Land (sqft)</label>
+              <input type="number" id="land_parcel" name="land_parcel" min="0" placeholder="0" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Age, Floor, Accessibility -->
+        <div class="form-section">
+          <div class="form-section-title">🏢 Structure</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="age_years">Age (years) *</label>
+              <input type="number" id="age_years" name="age_years" min="0" placeholder="8" required />
+            </div>
+            <div class="form-group">
+              <label for="total_building_floors">Total Building Floors</label>
+              <input type="number" id="total_building_floors" name="total_building_floors" min="1" placeholder="14" />
+            </div>
+          </div>
+          <div class="form-row three-col">
+            <div class="form-group">
+              <label for="floor_from">Unit Floor (from)</label>
+              <input type="number" id="floor_from" name="floor_from" min="0" placeholder="4" />
+            </div>
+            <div class="form-group">
+              <label for="floor_to">Unit Floor (to)</label>
+              <input type="number" id="floor_to" name="floor_to" min="0" placeholder="4" />
+            </div>
+            <div class="form-group" style="display:flex;align-items:end">
+              <span style="font-size:0.72rem;color:var(--text-muted);padding-bottom:0.65rem;">Same if single floor</span>
+            </div>
+          </div>
+
+          <!-- Dynamic per-floor measurements (injected by JS) -->
+          <div id="perFloorContainer"></div>
+
+          <div class="toggle-row">
+            <label class="toggle-item">
+              <input type="checkbox" id="lift" name="lift" checked />
+              <span>Lift Available</span>
+            </label>
+            <label class="toggle-item">
+              <input type="checkbox" id="ground_access" name="ground_access" />
+              <span>Ground Floor Access</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Occupancy & Rent -->
+        <div class="form-section">
+          <div class="form-section-title">💰 Occupancy &amp; Income</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="occupancy">Occupancy Status</label>
+              <select id="occupancy" name="occupancy">
+                <option value="self_occupied">Self Occupied</option>
+                <option value="rented">Rented</option>
+                <option value="vacant">Vacant</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="rent_monthly">Monthly Rent (₹)</label>
+              <input type="number" id="rent_monthly" name="rent_monthly" min="0" placeholder="25000" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Legal Status -->
+        <div class="form-section">
+          <div class="form-section-title">⚖️ Legal Status</div>
+          <div class="toggle-row">
+            <label class="toggle-item">
+              <input type="checkbox" id="freehold" name="freehold" checked />
+              <span>Freehold</span>
+            </label>
+            <label class="toggle-item">
+              <input type="checkbox" id="leasehold" name="leasehold" />
+              <span>Leasehold</span>
+            </label>
+            <label class="toggle-item">
+              <input type="checkbox" id="clear_title" name="clear_title" checked />
+              <span>Clear Title</span>
+            </label>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-submit" id="submitBtn">
+          <span class="spinner"></span>
+          <span class="btn-text">⚡ Run Valuation Pipeline</span>
+        </button>
+      </form>
+    </div>
+
+    <!-- ── RESULTS PANEL ───────────────────────────────────────── -->
+    <div class="results-panel">
+      <div class="card" id="resultsCard">
+        <div class="card-header">
+          <span class="icon">📊</span>
+          <h2>Valuation Results</h2>
+        </div>
+        <div id="resultsContent">
+          <div class="results-placeholder">
+            <div class="placeholder-icon">🏠</div>
+            <h3>No Results Yet</h3>
+            <p>Fill in the property details and run the valuation pipeline to see range-based estimates.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+</body>
+</html>
