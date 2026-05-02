@@ -10,7 +10,7 @@ const { clamp } = require('../utils/helpers');
 // Area norms by sub-type (sqft)
 const AREA_NORMS = {
   Apartment:  { min: 300,  max: 4000,  typical: 1200 },
-  'Detached House': { min: 1500, max: 15000, typical: 3500 },
+  Villa:      { min: 1500, max: 15000, typical: 3500 },
   Plot:       { min: 500,  max: 50000, typical: 2400 },
   Shop:       { min: 100,  max: 3000,  typical: 500  },
   Warehouse:  { min: 1000, max: 100000,typical: 8000 },
@@ -80,25 +80,6 @@ function runFalsePositiveChecks(input, features) {
   if (input.total_building_floors && input.floor_to > input.total_building_floors) {
     flags.push('floor_exceeds_building: unit floor is above total building floors');
     confidencePenalty += 0.08;
-  }
-
-  // Per-floor area consistency checks
-  if (input.floor_areas && input.floor_areas.length > 0 && input._floor_area_sum > 0) {
-    // Check sum vs carpet area mismatch (> 20% difference)
-    const carpet = input.size.carpet_area_sqft;
-    if (carpet > 0 && Math.abs(input._floor_area_sum - carpet) / carpet > 0.20) {
-      flags.push(`floor_area_sum_mismatch: per-floor sum (${input._floor_area_sum}) differs from carpet area (${carpet}) by >20%`);
-      confidencePenalty += 0.05;
-    }
-
-    // Check extreme variance between floor sizes (max > 3× min)
-    const floorSizes = input.floor_areas.map(fa => fa.area_sqft);
-    const maxSize = Math.max(...floorSizes);
-    const minSize = Math.min(...floorSizes);
-    if (minSize > 0 && maxSize / minSize > 3) {
-      flags.push(`floor_area_extreme_variance: largest floor (${maxSize}) is >3× smallest (${minSize})`);
-      confidencePenalty += 0.04;
-    }
   }
 
   if (input.age_years > 30 && features.imageFeatures.available && features.imageFeatures.quality_score > 0.8) {

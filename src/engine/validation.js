@@ -7,7 +7,7 @@
 
 const VALID_PROPERTY_TYPES = ['Residential', 'Commercial', 'Industrial'];
 const VALID_SUBTYPES = [
-  'Apartment', 'Detached House', 'Plot', 'Shop', 'Warehouse',
+  'Apartment', 'Villa', 'Plot', 'Shop', 'Warehouse',
   'Office', 'Penthouse', 'Studio', 'Duplex', 'Farmhouse',
 ];
 const VALID_OCCUPANCY = ['self_occupied', 'rented', 'vacant'];
@@ -112,64 +112,9 @@ function validateInput(raw) {
   // Backward compat: keep floor_level for downstream
   data.floor_level = data._floor_level;
 
-  // ── Per-floor areas ────────────────────────────────────────────────────
-  if (Array.isArray(raw.floor_areas) && raw.floor_areas.length > 0 && data._floor_span > 1) {
-    data.floor_areas = raw.floor_areas
-      .filter(fa => fa && typeof fa === 'object')
-      .map(fa => ({
-        floor:     Math.floor(Number(fa.floor) || 0),
-        area_sqft: Math.max(0, Number(fa.area_sqft) || 0),
-      }))
-      .filter(fa => fa.area_sqft > 0 && fa.floor >= data.floor_from && fa.floor <= data.floor_to);
-
-    // Sum of per-floor areas
-    data._floor_area_sum = data.floor_areas.reduce((s, fa) => s + fa.area_sqft, 0);
-
-    // If carpet area wasn't provided or is zero, use the per-floor sum
-    if (data.size.carpet_area_sqft === 0 && data._floor_area_sum > 0) {
-      data.size.carpet_area_sqft = data._floor_area_sum;
-    }
-  } else {
-    data.floor_areas = null;
-    data._floor_area_sum = null;
-  }
-
-  // ── Plot footprint vs total built area ─────────────────────────────────
-  // For multi-floor properties (detached house, duplex, etc.), the plot size
-  // is the ground floor area — NOT the sum of all floors. Circle rates apply
-  // to the plot footprint. Additional floors add built-up premium on top.
-  const totalCarpet = data.size.carpet_area_sqft;
-
-  if (data._floor_span > 1 && totalCarpet > 0) {
-    // Ground floor area from per-floor data if available
-    const groundFloorEntry = data.floor_areas?.find(fa => fa.floor === data.floor_from);
-
-    if (data.size.land_parcel_sqft > 0) {
-      // Explicit land parcel provided — use it directly as footprint
-      data._plot_footprint = data.size.land_parcel_sqft;
-    } else if (groundFloorEntry) {
-      // Ground floor area is the best proxy for plot footprint
-      data._plot_footprint = groundFloorEntry.area_sqft;
-    } else {
-      // No per-floor data: assume equal distribution across floors
-      data._plot_footprint = Math.round(totalCarpet / data._floor_span);
-    }
-
-    data._total_built_area = totalCarpet;
-    // Built-up multiplier: additional floors above ground contribute partial value
-    // Each additional floor adds ~65% of ground floor value (structure, not land)
-    data._builtup_floor_multiplier = 1 + (data._floor_span - 1) * 0.65;
-  } else {
-    // Single floor or no carpet: footprint = carpet area
-    data._plot_footprint = totalCarpet;
-    data._total_built_area = totalCarpet;
-    data._builtup_floor_multiplier = 1.0;
-  }
-
-  // Derived: effective area — uses plot footprint as the base for valuation
-  // (total built area is used separately for the floor multiplier)
+  // Derived: effective area (best available)
   data._effective_area =
-    data._plot_footprint ||
+    data.size.carpet_area_sqft ||
     data.size.builtup_area_sqft ||
     data.size.land_parcel_sqft;
 

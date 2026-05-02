@@ -40,9 +40,6 @@
     const floorFrom = num('floor_from');
     const floorTo   = num('floor_to') || floorFrom; // default to same floor
 
-    // Collect per-floor areas if multi-floor
-    const floorAreas = getPerFloorAreas();
-
     return {
       address: val('address'),
       lat_long: {
@@ -60,7 +57,6 @@
       floor_from:             floorFrom,
       floor_to:               floorTo,
       total_building_floors:  num('total_building_floors') || null,
-      floor_areas:            floorAreas.length > 0 ? floorAreas : null,
       accessibility: {
         lift:               checked('lift'),
         ground_floor_access: checked('ground_access'),
@@ -124,95 +120,16 @@
     if (this.checked) freeholdEl.checked = false;
   });
 
-  // ── Auto-sync floor_to from floor_from & per-floor inputs ──
-  const floorFromEl        = document.getElementById('floor_from');
-  const floorToEl          = document.getElementById('floor_to');
-  const perFloorContainer  = document.getElementById('perFloorContainer');
+  // ── Auto-sync floor_to from floor_from ─────────────────────
+  const floorFromEl = document.getElementById('floor_from');
+  const floorToEl   = document.getElementById('floor_to');
 
   floorFromEl.addEventListener('input', function () {
     // If floor_to is empty or less than floor_from, sync it
     if (!floorToEl.value || Number(floorToEl.value) < Number(this.value)) {
       floorToEl.value = this.value;
     }
-    renderPerFloorInputs();
   });
-
-  floorToEl.addEventListener('input', function () {
-    renderPerFloorInputs();
-  });
-
-  // ── Per-floor measurement rendering ────────────────────────
-  function renderPerFloorInputs() {
-    const from = parseInt(floorFromEl.value) || 0;
-    const to   = parseInt(floorToEl.value)   || from;
-    const span = to - from + 1;
-
-    // Only show per-floor inputs for multi-floor units
-    if (span <= 1 || to < from) {
-      perFloorContainer.innerHTML = '';
-      return;
-    }
-
-    // Cap at 10 floors to keep the form manageable
-    const actualSpan = Math.min(span, 10);
-
-    let inputsHtml = '';
-    for (let f = from; f < from + actualSpan; f++) {
-      const label = f === 0 ? 'Ground Floor' : `Floor ${f}`;
-      inputsHtml += `
-        <div class="form-group">
-          <label for="floor_area_${f}">${label} (sqft)</label>
-          <input type="number" id="floor_area_${f}" class="per-floor-area"
-                 data-floor="${f}" min="0" placeholder="e.g. 800" />
-        </div>
-      `;
-    }
-
-    if (span > 10) {
-      inputsHtml += `<div style="font-size:0.72rem;color:var(--warning);grid-column:1/-1;">Showing first 10 floors only</div>`;
-    }
-
-    perFloorContainer.innerHTML = `
-      <div class="per-floor-section">
-        <div class="per-floor-title">📏 Per-Floor Measurements (${span} floors)</div>
-        <div class="per-floor-grid">${inputsHtml}</div>
-        <div class="per-floor-sum">
-          Total area: <span class="sum-value" id="perFloorSum">0 sqft</span>
-          <span style="font-size:0.65rem;opacity:0.6;">→ auto-fills carpet area</span>
-        </div>
-      </div>
-    `;
-
-    // Attach input listeners for live sum
-    perFloorContainer.querySelectorAll('.per-floor-area').forEach(el => {
-      el.addEventListener('input', updatePerFloorSum);
-    });
-  }
-
-  function updatePerFloorSum() {
-    const areas = getPerFloorAreas();
-    const total = areas.reduce((s, a) => s + a.area_sqft, 0);
-    const sumEl = document.getElementById('perFloorSum');
-    if (sumEl) sumEl.textContent = total.toLocaleString('en-IN') + ' sqft';
-
-    // Auto-fill carpet area from sum
-    if (total > 0) {
-      document.getElementById('carpet_area').value = total;
-    }
-  }
-
-  function getPerFloorAreas() {
-    const inputs = perFloorContainer.querySelectorAll('.per-floor-area');
-    const areas = [];
-    inputs.forEach(el => {
-      const floor = parseInt(el.dataset.floor);
-      const area  = parseFloat(el.value) || 0;
-      if (area > 0) {
-        areas.push({ floor, area_sqft: area });
-      }
-    });
-    return areas;
-  }
 
   // ── Render Errors ────────────────────────────────────────────
   function renderErrors(errors) {
@@ -246,8 +163,7 @@
            <div class="result-label">📍 Resolved Location</div>
            <div style="font-size:0.82rem;color:var(--text-primary);font-weight:500;margin-bottom:0.3rem;">${esc(geo.resolved_address || '')}</div>
            ${renderPOIs(geo.nearest_pois)}
-           ${renderCompositeScores(geo.scores)}
-           <div class="result-sub" style="color:var(--success);">✓ Geocoded via Nominatim + Geoapify Places (${geo.total_pois || 0} POIs scanned)</div>
+           <div class="result-sub" style="color:var(--success);">✓ Geocoded via Nominatim + Overpass POI search</div>
          </div>`
       : `<div class="result-item">
            <div class="result-label">📍 Location</div>
@@ -350,29 +266,6 @@
       </span>`
     ).join('');
     return `<div class="tag-list" style="margin-bottom:0.4rem;">${rows}</div>`;
-  }
-
-  // ── Render composite geo scores ─────────────────────────────
-  function renderCompositeScores(scores) {
-    if (!scores) return '';
-    const items = [
-      { label: 'Infra',      key: 'infra_score',      color: 'var(--accent-light)' },
-      { label: 'Commercial', key: 'commercial_score',  color: 'var(--warning)' },
-      { label: 'Livability', key: 'livability_score',  color: 'var(--success)' },
-      { label: 'Loc Premium',key: 'location_premium',  color: 'var(--info)' },
-    ];
-    const bars = items.map(({ label, key, color }) => {
-      const val = scores[key] != null ? (scores[key] * 100).toFixed(0) : '—';
-      const width = scores[key] != null ? Math.round(scores[key] * 100) : 0;
-      return `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem;">
-        <span style="font-size:0.65rem;font-weight:600;color:var(--text-muted);min-width:75px;">${label}</span>
-        <div style="flex:1;height:5px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
-          <div style="width:${width}%;height:100%;background:${color};border-radius:3px;transition:width 0.6s ease;"></div>
-        </div>
-        <span style="font-size:0.65rem;font-family:'JetBrains Mono',monospace;color:${color};min-width:28px;text-align:right;">${val}%</span>
-      </div>`;
-    }).join('');
-    return `<div style="margin:0.5rem 0 0.3rem;">${bars}</div>`;
   }
 
   // ── Utilities ────────────────────────────────────────────────

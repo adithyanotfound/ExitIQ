@@ -22,7 +22,7 @@ const CIRCLE_RATES = {
 // ── Property Sub-type Premiums / Discounts ─────────────────────────────────
 const SUBTYPE_MULTIPLIERS = {
   Apartment:   1.00,
-  'Detached House': 1.25,
+  Villa:       1.25,
   Plot:        0.85,
   Shop:        1.10,
   Warehouse:   0.75,

@@ -9,22 +9,16 @@ const { DISTRESS_DISCOUNT } = require('../utils/constants');
 const { clamp, roundToLakh } = require('../utils/helpers');
 
 function computeMarketValue(f) {
-  // Base value = circle rate × plot footprint (NOT total carpet across all floors)
-  // For multi-floor: additional floors add built-up value via multiplier
-  const plotBase = f.circleRate * f.effectiveArea;
-  const baseValue = plotBase * (f.builtupFloorMultiplier || 1.0);
-
+  const baseValue = f.circleRate * f.effectiveArea;
   const adjustments = {};
 
   adjustments.location_premium = f.locationPremium - 1.0;
   adjustments.subtype = f.subtypeMultiplier - 1.0;
 
-  // Size scaling uses total built area for multi-floor, not just footprint
-  const sizeRef = f.totalBuiltArea || f.effectiveArea;
-  if (sizeRef > 3000)      adjustments.size_scaling = -0.05;
-  else if (sizeRef > 2000) adjustments.size_scaling = -0.02;
-  else if (sizeRef < 500)  adjustments.size_scaling =  0.03;
-  else                     adjustments.size_scaling =  0.00;
+  if (f.effectiveArea > 3000)      adjustments.size_scaling = -0.05;
+  else if (f.effectiveArea > 2000) adjustments.size_scaling = -0.02;
+  else if (f.effectiveArea < 500)  adjustments.size_scaling =  0.03;
+  else                             adjustments.size_scaling =  0.00;
 
   adjustments.age_depreciation = f.depreciationFactor - 1.0;
   adjustments.infrastructure = (f.infraScore - 0.5) * 0.20;

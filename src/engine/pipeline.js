@@ -23,8 +23,8 @@ async function runPipeline(rawInput) {
   }
   const input = validation.data;
 
-  // 2. Geocode & POI enrichment (pass sub_type for niche penalty)
-  const geoData = await analyzeLocation(input.address, input.sub_type);
+  // 2. Geocode & POI enrichment
+  const geoData = await analyzeLocation(input.address);
 
   // 3. Feature engineering (now receives geo data)
   const features = engineerFeatures(input, geoData);
@@ -69,18 +69,7 @@ async function runPipeline(rawInput) {
         enriched: features.geoEnriched,
         resolved_address: features.geocodedAddress,
         nearest_pois: features.nearestPOIs,
-        density: features.geoDensity,
-        total_pois: features.geoTotalPOIs,
         scores: features.geoScores,
-      },
-      floor: {
-        from: features.floorFrom,
-        to: features.floorTo,
-        span: features.floorSpan,
-        level: input._floor_level,
-        total_building_floors: features.totalBuildingFloors,
-        per_floor_areas: features.floorAreas,
-        floor_area_sum: features.floorAreaSum,
       },
     },
   };

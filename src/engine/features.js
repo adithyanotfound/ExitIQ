@@ -5,7 +5,7 @@
  * valuation and liquidity scoring downstream.
  *
  * Feature groups:
- *   A – Location Intelligence  (rich Geoapify composite scores)
+ *   A – Location Intelligence  (now uses real geocoding + POI data)
  *   B – Property Characteristics
  *   C – Legal & Ownership
  *   D – Income & Usage
@@ -30,7 +30,9 @@ function isGeoEnriched(geoData) {
 }
 
 // ── Zone Detection ────────────────────────────────────────────────────────
+// Try geocoded display_name first for broader matching, then raw address
 function detectZone(address, geoData) {
+  // If we have a resolved display_name, use it for better keyword matching
   if (isGeoEnriched(geoData) && geoData.location.display_name) {
     const resolved = geoData.location.display_name.toLowerCase();
     for (const [zone, keywords] of Object.entries(ZONE_KEYWORDS)) {
@@ -39,13 +41,15 @@ function detectZone(address, geoData) {
       }
     }
   }
+
+  // Fallback: keyword match on raw address
   const addr = address.toLowerCase();
   for (const [zone, keywords] of Object.entries(ZONE_KEYWORDS)) {
     for (const kw of keywords) {
       if (addr.includes(kw)) return zone;
     }
   }
-  return 'suburban';
+  return 'suburban'; // conservative default
 }
 
 // ── Circle Rate Lookup ────────────────────────────────────────────────────
@@ -65,10 +69,11 @@ function computeDepreciation(age) {
     totalDep += effectiveYears * band.annualRate;
     remaining -= effectiveYears;
   }
-  return clamp(1 - totalDep, 0.40, 1.0);
+  return clamp(1 - totalDep, 0.40, 1.0); // floor at 60% depreciation
 }
 
 // ── Floor Adjustment ────────────────────────────────────────────────────────
+// Now uses numeric floor_from, floor_to, total_building_floors + _floor_level
 function getFloorAdjustment(input) {
   const floorLevel = input._floor_level || input.floor_level || 'mid';
   let adj = FLOOR_ADJUSTMENTS[floorLevel] || FLOOR_ADJUSTMENTS.mid;
@@ -77,37 +82,45 @@ function getFloorAdjustment(input) {
   const floorTo  = input.floor_to || 0;
   const span     = input._floor_span || 1;
 
+  // Walk-up penalty for high floors without lift
   if (floorTo > 8 && !hasLift) {
     adj -= 0.06;
   } else if (floorTo > 3 && !hasLift) {
     adj -= 0.03;
   }
 
-  if (span >= 2) adj += 0.04;
-  if (span >= 3) adj += 0.02;
+  // Multi-floor span premium (duplex, villa, multi-level unit)
+  if (span >= 2) {
+    adj += 0.04;  // 2-floor span (duplex)
+  }
+  if (span >= 3) {
+    adj += 0.02;  // 3+ floors (independent house / villa)
+  }
 
   return adj;
 }
 
 // ── Infrastructure Score ──────────────────────────────────────────────────
-// Uses rich Geoapify composite when available; falls back to synthetic
+// Uses Geoapify infra_score when available; falls back to synthetic
 function computeInfraScore(address, zone, geoData) {
   if (isGeoEnriched(geoData) && geoData.scores) {
-    // Pipeline now provides infra_score from metro + hospital + school + bus
-    const geoInfra = geoData.scores.infra_score || 0;
+    // Geoapify pipeline provides a pre-computed infra_score (0–1)
+    // Blend it with zone-proxy scores for categories not covered by POI search
+    const geoInfra = geoData.scores.infra_score;
 
-    // Zone proxies for categories not covered by POI search (highway, airport)
+    // Zone proxies for highway / airport (not covered by Geoapify POI search)
     const highwayProxy = zone === 'prime' || zone === 'urban' ? 0.70 : 0.40;
     const airportProxy = zone === 'prime' ? 0.60 : zone === 'urban' ? 0.45 : 0.25;
 
-    // 80% real data, 20% zone proxy (was 70/30 with 2 categories)
-    const blended = geoInfra * 0.80 + ((highwayProxy + airportProxy) / 2) * 0.20;
+    // Weighted blend: 70% from real POI scores, 30% from zone proxies
+    const blended = geoInfra * 0.70 + ((highwayProxy + airportProxy) / 2) * 0.30;
     return clamp(blended, 0.1, 1.0);
   }
+
   return computeInfraScoreSynthetic(address, zone);
 }
 
-// Synthetic fallback
+// Synthetic fallback (original logic)
 function computeInfraScoreSynthetic(address, zone) {
   const zoneBase = { prime: 0.85, urban: 0.68, suburban: 0.50, periurban: 0.35, rural: 0.20 };
   const base = zoneBase[zone] || 0.45;
@@ -115,22 +128,8 @@ function computeInfraScoreSynthetic(address, zone) {
   return clamp(base + jitter, 0.1, 1.0);
 }
 
-// ── Market Activity ───────────────────────────────────────────────────────
-// Uses real commercial_score when available; falls back to zone-based
-function computeMarketActivity(zone, subType, geoData) {
-  if (isGeoEnriched(geoData) && geoData.scores?.commercial_score != null) {
-    // Blend real commercial activity with zone baseline for robustness
-    const geoCommercial = geoData.scores.commercial_score;
-    const zoneBase = { prime: 0.90, urban: 0.72, suburban: 0.50, periurban: 0.35, rural: 0.20 };
-    const base = zoneBase[zone] || 0.45;
-
-    // 70% real, 30% zone base
-    const blended = geoCommercial * 0.70 + base * 0.30;
-    const subtypeBoost = HIGH_FUNGIBILITY_SUBTYPES.includes(subType) ? 0.06 : -0.03;
-    return clamp(blended + subtypeBoost, 0.1, 1.0);
-  }
-
-  // Synthetic fallback
+// ── Market Activity Proxy ─────────────────────────────────────────────────
+function computeMarketActivity(zone, subType) {
   const zoneActivity = { prime: 0.90, urban: 0.72, suburban: 0.50, periurban: 0.35, rural: 0.20 };
   const base = zoneActivity[zone] || 0.45;
   const subtypeBoost = HIGH_FUNGIBILITY_SUBTYPES.includes(subType) ? 0.08 : -0.05;
@@ -139,35 +138,32 @@ function computeMarketActivity(zone, subType, geoData) {
 
 // ── Fungibility Score ─────────────────────────────────────────────────────
 function computeFungibility(subType, effectiveArea) {
-  let score = 0.55;
+  let score = 0.55; // baseline
   if (HIGH_FUNGIBILITY_SUBTYPES.includes(subType)) score += 0.20;
   if (LOW_FUNGIBILITY_SUBTYPES.includes(subType))  score -= 0.25;
+
+  // Very large or very small properties are less fungible
   if (effectiveArea > 5000) score -= 0.15;
   else if (effectiveArea < 300) score -= 0.10;
+
   return clamp(score, 0.1, 1.0);
 }
 
 // ── Neighbourhood Quality ─────────────────────────────────────────────────
-// Now uses livability_score when available
+// Boost when geo data confirms nearby amenities
 function computeNeighbourhoodQuality(zone, address, geoData) {
   const zoneBase = { prime: 0.88, urban: 0.70, suburban: 0.55, periurban: 0.40, rural: 0.30 };
   let base = zoneBase[zone] || 0.50;
 
-  if (isGeoEnriched(geoData) && geoData.scores) {
-    // Use livability_score (schools + hospitals + supermarkets + restaurants)
-    if (geoData.scores.livability_score != null) {
-      // Blend livability with zone base: 65% real, 35% zone
-      return clamp(geoData.scores.livability_score * 0.65 + base * 0.35, 0.1, 1.0);
-    }
-
-    // Legacy fallback: count nearby POIs
+  if (isGeoEnriched(geoData)) {
+    // Count nearby POI categories found within 2 km
     let nearbyCount = 0;
-    const nearest = geoData.nearest || {};
-    for (const cat of ['metro', 'hospital', 'school', 'supermarket', 'mall', 'restaurant']) {
-      if (nearest[cat] && nearest[cat].distance_km < 2) nearbyCount++;
-    }
-    base += Math.min(nearbyCount * 0.04, 0.20);
+    if (geoData.nearest_metro    && geoData.nearest_metro.distance_km    < 2) nearbyCount++;
+    if (geoData.nearest_hospital && geoData.nearest_hospital.distance_km < 2) nearbyCount++;
+    // Each nearby amenity adds a small bump (up to +0.15)
+    base += Math.min(nearbyCount * 0.05, 0.15);
   } else {
+    // Synthetic jitter
     const jitter = (stringHash01(address + '_nbhd') - 0.5) * 0.10;
     base += jitter;
   }
@@ -181,6 +177,7 @@ function computeLegalClarity(legalStatus) {
   if (legalStatus.freehold)    score += 0.20;
   if (legalStatus.clear_title) score += 0.25;
   if (legalStatus.leasehold)   score -= 0.15;
+  // Disputed or unclear = lower
   if (!legalStatus.clear_title && !legalStatus.freehold) score -= 0.20;
   return clamp(score, 0.1, 1.0);
 }
@@ -195,7 +192,7 @@ function computeRentalYield(rentMonthly, estimatedValue) {
 function computeIncomeStability(occupancy, rentMonthly) {
   if (occupancy === 'rented' && rentMonthly > 0) return 0.80;
   if (occupancy === 'self_occupied') return 0.60;
-  return 0.30;
+  return 0.30; // vacant
 }
 
 // ── Age Bucket ────────────────────────────────────────────────────────────
@@ -210,6 +207,8 @@ function computeImageFeatures(images) {
   if (!images || images.length === 0) {
     return { available: false, quality_score: null, condition_proxy: null, mismatch_flag: false };
   }
+  // In production this would invoke a vision model.
+  // For now, presence of images boosts confidence slightly.
   return {
     available: true,
     quality_score: 0.65,
@@ -220,17 +219,18 @@ function computeImageFeatures(images) {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Main feature engineering function
-// Now accepts rich geoData with composite scores
+// Now accepts optional geoData from the geo pipeline
 // ═══════════════════════════════════════════════════════════════════════════
 function engineerFeatures(input, geoData) {
   const zone = detectZone(input.address, geoData);
 
-  // A – Location intelligence
+  // A – Location intelligence (uses real geo data when available)
   const circleRate           = getCircleRate(zone, input.property_type);
   const infraScore           = computeInfraScore(input.address, zone, geoData);
-  const marketActivity       = computeMarketActivity(zone, input.sub_type, geoData);
+  const marketActivity       = computeMarketActivity(zone, input.sub_type);
   const neighbourhoodQuality = computeNeighbourhoodQuality(zone, input.address, geoData);
 
+  // Location premium as a multiplier
   const locationPremium = {
     prime: 1.40, urban: 1.15, suburban: 1.00, periurban: 0.85, rural: 0.70,
   }[zone] || 1.00;
@@ -245,21 +245,14 @@ function engineerFeatures(input, geoData) {
   const legalClarity = computeLegalClarity(input.legal_status);
 
   // D – Income & Usage
+  // We need a rough base value for yield calculation; use circle rate × area
   const roughBaseValue      = circleRate * input._effective_area;
   const rentalYield         = computeRentalYield(input.rent_monthly, roughBaseValue);
   const incomeStability     = computeIncomeStability(input.occupancy_status, input.rent_monthly);
 
   // E – Market dynamics
-  // Use geo liquidity signal to boost supply-demand if available
-  let supplyDemandBalance = clamp(marketActivity * 0.8 + neighbourhoodQuality * 0.2, 0.1, 1.0);
-  if (isGeoEnriched(geoData) && geoData.scores?.liquidity_signal != null) {
-    // Blend real liquidity signal with computed S/D: 50/50
-    supplyDemandBalance = clamp(
-      supplyDemandBalance * 0.50 + geoData.scores.liquidity_signal * 0.50,
-      0.1, 1.0
-    );
-  }
-
+  const supplyDemandBalance = clamp(marketActivity * 0.8 + neighbourhoodQuality * 0.2, 0.1, 1.0);
+  // Synthetic price momentum based on zone
   const priceMomentum = { prime: 0.06, urban: 0.04, suburban: 0.02, periurban: -0.01, rural: -0.03 }[zone] || 0.00;
 
   // F – Image features
@@ -267,11 +260,12 @@ function engineerFeatures(input, geoData) {
 
   // Build nearest-POI summary for debug output
   const nearestPOIs = {};
-  if (isGeoEnriched(geoData) && geoData.nearest) {
-    for (const [cat, poi] of Object.entries(geoData.nearest)) {
-      if (poi) {
-        nearestPOIs[cat] = { name: poi.name, distance_km: poi.distance_km };
-      }
+  if (isGeoEnriched(geoData)) {
+    if (geoData.nearest_metro) {
+      nearestPOIs.metro = { name: geoData.nearest_metro.name, distance_km: geoData.nearest_metro.distance_km };
+    }
+    if (geoData.nearest_hospital) {
+      nearestPOIs.hospital = { name: geoData.nearest_hospital.name, distance_km: geoData.nearest_hospital.distance_km };
     }
   }
 
@@ -289,8 +283,6 @@ function engineerFeatures(input, geoData) {
     geocodedAddress: geoData?.location?.display_name || null,
     nearestPOIs,
     geoScores: geoData?.scores || null,
-    geoDensity: geoData?.density || null,
-    geoTotalPOIs: geoData?.total_pois || 0,
 
     // Property
     subtypeMultiplier,
@@ -317,9 +309,6 @@ function engineerFeatures(input, geoData) {
 
     // Pass-through for downstream
     effectiveArea: input._effective_area,
-    plotFootprint: input._plot_footprint,
-    totalBuiltArea: input._total_built_area,
-    builtupFloorMultiplier: input._builtup_floor_multiplier,
     propertyType: input.property_type,
     subType: input.sub_type,
     ageYears: input.age_years,
@@ -331,8 +320,6 @@ function engineerFeatures(input, geoData) {
     floorTo: input.floor_to,
     floorSpan: input._floor_span,
     totalBuildingFloors: input.total_building_floors,
-    floorAreas: input.floor_areas,
-    floorAreaSum: input._floor_area_sum,
   };
 }
 
