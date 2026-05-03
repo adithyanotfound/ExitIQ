@@ -45,7 +45,7 @@ export default function Landing() {
           </Link>
         </div>
         <div className="mt-20 w-full max-w-2xl mx-auto drop-shadow-xl shadow-blue-900/5">
-          <div className="grid grid-cols-4 gap-px rounded-2xl overflow-hidden border border-white/60 bg-slate-200/50">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-px rounded-2xl overflow-hidden border border-white/60 bg-slate-200/50">
             {STATS.map((s, i) => (
               <div key={i} className="bg-white/90 backdrop-blur-md px-4 py-6 text-center transition-all hover:bg-white">
                 <div className="text-2xl font-bold text-slate-900 font-mono tracking-tight">{s.value}</div>
