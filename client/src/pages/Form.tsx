@@ -1,30 +1,71 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, Building2, Ruler, Layers, Users, Scale, ChevronRight, ChevronLeft, Loader2 } from 'lucide-react'
-import { Card, CardContent } from '@/components/ui/card'
+import { MapPin, Building2, Ruler, Layers, Users, Scale, ChevronRight, ChevronLeft, Loader2, Info, LocateFixed, X, ArrowRight } from 'lucide-react'
+import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import { cn } from '@/lib/utils'
+
+/* Fix Leaflet default marker icon */
+delete (L.Icon.Default.prototype as any)._getIconUrl
+const customMarker = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+})
 
 const SUBTYPES = ['Apartment','Detached House','Plot','Shop','Warehouse','Office','Penthouse','Studio','Duplex','Farmhouse']
 
 interface FormProps { onResult: (data: any) => void }
 
 const STEPS = [
-  { id: 'location', label: 'Location', icon: MapPin },
-  { id: 'classification', label: 'Type', icon: Building2 },
-  { id: 'dimensions', label: 'Size', icon: Ruler },
-  { id: 'structure', label: 'Structure', icon: Layers },
-  { id: 'occupancy', label: 'Occupancy', icon: Users },
-  { id: 'legal', label: 'Legal', icon: Scale },
+  { id: 'location', label: 'Location', desc: 'Property address', icon: MapPin },
+  { id: 'classification', label: 'Classification', desc: 'Type & sub-type', icon: Building2 },
+  { id: 'dimensions', label: 'Dimensions', desc: 'Area measurements', icon: Ruler },
+  { id: 'structure', label: 'Structure', desc: 'Building details', icon: Layers },
+  { id: 'occupancy', label: 'Occupancy', desc: 'Usage & income', icon: Users },
+  { id: 'legal', label: 'Legal Status', desc: 'Ownership info', icon: Scale },
 ]
 
-/* Shared input styles */
-const inputBase = "w-full bg-transparent border-0 border-b border-zinc-800 px-0 py-3 text-sm text-foreground placeholder:text-zinc-700 focus:border-foreground focus:outline-none transition-colors"
-const selectBase = "w-full bg-transparent border-0 border-b border-zinc-800 px-0 py-3 text-sm text-foreground focus:border-foreground focus:outline-none transition-colors appearance-none cursor-pointer"
+/* Field definitions for info tooltips */
+const TIPS: Record<string, string> = {
+  address: 'Full street address including city, pin code, and landmarks.',
+  lat: 'Decimal latitude. Use the map picker to auto-fill.',
+  lng: 'Decimal longitude. Use the map picker to auto-fill.',
+  ptype: 'Broad category: Residential, Commercial, or Industrial.',
+  stype: 'Specific type like Apartment, Plot, Office, etc.',
+  carpet: 'Usable floor area within walls, excluding common areas.',
+  builtup: 'Total area including walls and balconies.',
+  land: 'Total land parcel area. Applies to plots & houses.',
+  age: 'Years since construction or last major renovation.',
+  tfloors: 'Total floors in the building.',
+  ffrom: 'Starting floor (0 = ground).',
+  fto: 'Ending floor if unit spans multiple floors.',
+  lift: 'Whether the building has a working elevator.',
+  gaccess: 'Direct access from ground level.',
+  occ: 'Self-occupied, rented, or vacant.',
+  rent: 'Monthly rental income. 0 if not rented.',
+  freehold: 'Full ownership with no time restrictions.',
+  leasehold: 'Property held on a fixed-period lease.',
+  ctitle: 'Legally verified title with no disputes.',
+}
+
+/* ── Styled inputs — light theme ── */
+const inputCls = "w-full bg-white border border-border rounded-lg px-3.5 py-2.5 text-sm text-foreground placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none transition"
+const selectCls = "w-full bg-white border border-border rounded-lg px-3.5 py-2.5 text-sm text-foreground focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none transition appearance-none cursor-pointer"
 
 export default function Form({ onResult }: FormProps) {
   const [step, setStep] = useState(0)
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<string[] | null>(null)
+  const [mapOpen, setMapOpen] = useState(false)
+  const [pinLat, setPinLat] = useState<number | null>(null)
+  const [pinLng, setPinLng] = useState<number | null>(null)
+  const [pinAddress, setPinAddress] = useState('')
+  const [geoLoading, setGeoLoading] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)
   const navigate = useNavigate()
 
@@ -32,14 +73,75 @@ export default function Form({ onResult }: FormProps) {
   const n = (id: string) => parseFloat(formRef.current?.querySelector<HTMLInputElement>(`#${id}`)?.value || '') || 0
   const c = (id: string) => formRef.current?.querySelector<HTMLInputElement>(`#${id}`)?.checked || false
 
-  const canProceed = () => {
-    if (step === 0) return true // address is filled on submit
+  function applyPin() {
+    if (!pinLat || !pinLng) return
+    const set = (id: string, val: string) => { const el = formRef.current?.querySelector<HTMLInputElement>(`#${id}`); if (el) { el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })) } }
+    set('lat', pinLat.toFixed(6)); set('lng', pinLng.toFixed(6))
+    if (pinAddress) set('address', pinAddress)
+    setMapOpen(false)
+  }
+
+  function useMyLocation() {
+    if (!navigator.geolocation) return
+    setGeoLoading(true)
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords
+        setPinLat(lat); setPinLng(lng)
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+          const data = await res.json()
+          if (data.display_name) setPinAddress(data.display_name)
+        } catch {}
+        setGeoLoading(false); setMapOpen(true)
+      },
+      () => setGeoLoading(false),
+      { enableHighAccuracy: true }
+    )
+  }
+
+  function validateStep(s: number) {
+    setErrors(null)
+    const errs: string[] = []
+    
+    if (s === 0) {
+      const address = v('address')
+      const lat = v('lat')
+      const lng = v('lng')
+      
+      if (!lat || !lng) {
+        if (!address) errs.push('Please provide a Property Address OR pick a location on the Map.')
+      }
+    } else if (s === 1) {
+      if (!v('ptype')) errs.push('Property Type is required.')
+      if (!v('stype')) errs.push('Sub-type is required.')
+    } else if (s === 2) {
+      if (!v('carpet')) errs.push('Carpet Area is required.')
+    } else if (s === 3) {
+      if (!v('age')) errs.push('Building Age is required.')
+    }
+    
+    if (errs.length > 0) {
+      setErrors(errs)
+      return false
+    }
     return true
+  }
+
+  function goNext() { 
+    if (validateStep(step)) setStep(s => Math.min(STEPS.length - 1, s + 1)) 
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (step < STEPS.length - 1) { setStep(s => s + 1); return }
+    
+    for (let i = 0; i <= step; i++) {
+      if (!validateStep(i)) {
+        setStep(i)
+        return
+      }
+    }
+
     setLoading(true); setErrors(null)
     const payload = {
       address: v('address'), lat_long: { lat: n('lat') || null, lng: n('lng') || null },
@@ -62,259 +164,301 @@ export default function Form({ onResult }: FormProps) {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center px-4 py-24">
-      <div className="w-full max-w-xl">
-        {/* Header */}
-        <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">Property Valuation</h1>
-          <p className="text-sm text-muted-foreground mt-1">Fill in the details to generate your report</p>
-        </div>
+    <div className="min-h-screen flex items-center justify-center px-4 py-8">
+      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-xl shadow-blue-900/5 border border-white/80 overflow-hidden">
+        <form ref={formRef} onSubmit={handleSubmit} autoComplete="off" noValidate>
+          <div className="flex min-h-[540px]">
 
-        {/* Step Indicator */}
-        <div className="flex items-center justify-center gap-1 mb-8">
-          {STEPS.map((s, i) => {
-            const Icon = s.icon
-            return (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setStep(i)}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium transition-all cursor-pointer',
-                  i === step
-                    ? 'bg-foreground text-background'
-                    : i < step
-                    ? 'bg-zinc-800 text-zinc-300'
-                    : 'bg-transparent text-zinc-600 hover:text-zinc-400'
-                )}
-              >
-                <Icon className="size-3" />
-                <span className="hidden sm:inline">{s.label}</span>
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Errors */}
-        {errors && (
-          <Card className="mb-4 border-red-500/20 bg-red-500/5">
-            <CardContent className="py-3">
-              {errors.map((e, i) => <p key={i} className="text-xs text-red-400">{e}</p>)}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Form Card */}
-        <Card>
-          <form ref={formRef} onSubmit={handleSubmit} autoComplete="off">
-            <CardContent className="min-h-[280px]">
-              {/* Step 0 — Location */}
-              <div className={cn('space-y-6', step !== 0 && 'hidden')}>
-                <div className="flex items-center gap-2 mb-2">
-                  <MapPin className="size-4 text-muted-foreground" />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Location Details</span>
-                </div>
-                <div>
-                  <label htmlFor="address" className="text-xs font-medium text-muted-foreground">Property Address *</label>
-                  <input id="address" placeholder="e.g. Koramangala, Bangalore" required className={inputBase} />
-                </div>
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <label htmlFor="lat" className="text-xs font-medium text-muted-foreground">Latitude</label>
-                    <input id="lat" type="number" step="any" placeholder="12.9352" className={inputBase} />
-                  </div>
-                  <div>
-                    <label htmlFor="lng" className="text-xs font-medium text-muted-foreground">Longitude</label>
-                    <input id="lng" type="number" step="any" placeholder="77.6245" className={inputBase} />
-                  </div>
-                </div>
+            {/* ── Left Sidebar — Step Indicator ── */}
+            <div className="w-56 shrink-0 bg-slate-50/80 border-r border-border p-6 flex flex-col">
+              <div className="mb-6">
+                <h2 className="text-lg font-bold text-foreground">Property Info</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Complete each section</p>
               </div>
-
-              {/* Step 1 — Classification */}
-              <div className={cn('space-y-6', step !== 1 && 'hidden')}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Building2 className="size-4 text-muted-foreground" />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Property Classification</span>
-                </div>
-                <div>
-                  <label htmlFor="ptype" className="text-xs font-medium text-muted-foreground">Property Type *</label>
-                  <select id="ptype" required className={selectBase}>
-                    <option value="">Select type</option>
-                    <option value="Residential">Residential</option>
-                    <option value="Commercial">Commercial</option>
-                    <option value="Industrial">Industrial</option>
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="stype" className="text-xs font-medium text-muted-foreground">Sub-type *</label>
-                  <select id="stype" required className={selectBase}>
-                    <option value="">Select sub-type</option>
-                    {SUBTYPES.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
+              <div className="space-y-1 flex-1">
+                {STEPS.map((s, i) => {
+                  const Icon = s.icon
+                  const isDone = i < step
+                  const isActive = i === step
+                  return (
+                    <button key={s.id} type="button" onClick={() => setStep(i)}
+                      className={cn(
+                        'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all cursor-pointer',
+                        isActive ? 'bg-primary/10 text-primary' : isDone ? 'text-foreground' : 'text-muted-foreground hover:bg-slate-100'
+                      )}
+                    >
+                      <div className={cn(
+                        'w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-semibold transition-all',
+                        isActive ? 'bg-primary text-white shadow-md shadow-blue-500/30' :
+                        isDone ? 'bg-emerald-100 text-emerald-600 border border-emerald-200' :
+                        'bg-slate-100 text-slate-400 border border-border'
+                      )}>
+                        {isDone ? '✓' : <Icon className="size-3.5" />}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-semibold truncate">{s.label}</div>
+                        <div className="text-[10px] text-muted-foreground truncate">{s.desc}</div>
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
-
-              {/* Step 2 — Dimensions */}
-              <div className={cn('space-y-6', step !== 2 && 'hidden')}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Ruler className="size-4 text-muted-foreground" />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Dimensions</span>
-                </div>
-                <div className="grid grid-cols-3 gap-6">
-                  <div>
-                    <label htmlFor="carpet" className="text-xs font-medium text-muted-foreground">Carpet (sqft) *</label>
-                    <input id="carpet" type="number" min="0" placeholder="1050" className={inputBase} />
-                  </div>
-                  <div>
-                    <label htmlFor="builtup" className="text-xs font-medium text-muted-foreground">Built-up (sqft)</label>
-                    <input id="builtup" type="number" min="0" placeholder="1250" className={inputBase} />
-                  </div>
-                  <div>
-                    <label htmlFor="land" className="text-xs font-medium text-muted-foreground">Land (sqft)</label>
-                    <input id="land" type="number" min="0" placeholder="0" className={inputBase} />
-                  </div>
-                </div>
+              <div className="text-[10px] text-muted-foreground mt-4">
+                Step {step + 1} of {STEPS.length}
               </div>
-
-              {/* Step 3 — Structure */}
-              <div className={cn('space-y-6', step !== 3 && 'hidden')}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Layers className="size-4 text-muted-foreground" />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Structure Details</span>
-                </div>
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <label htmlFor="age" className="text-xs font-medium text-muted-foreground">Age (years) *</label>
-                    <input id="age" type="number" min="0" placeholder="8" required className={inputBase} />
-                  </div>
-                  <div>
-                    <label htmlFor="tfloors" className="text-xs font-medium text-muted-foreground">Total Floors</label>
-                    <input id="tfloors" type="number" min="1" placeholder="14" className={inputBase} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <label htmlFor="ffrom" className="text-xs font-medium text-muted-foreground">Floor (from)</label>
-                    <input id="ffrom" type="number" min="0" placeholder="4" className={inputBase} />
-                  </div>
-                  <div>
-                    <label htmlFor="fto" className="text-xs font-medium text-muted-foreground">Floor (to)</label>
-                    <input id="fto" type="number" min="0" placeholder="4" className={inputBase} />
-                  </div>
-                </div>
-                <div className="flex gap-6 pt-2">
-                  <ToggleChip id="lift" label="Lift" defaultChecked />
-                  <ToggleChip id="gaccess" label="Ground Floor Access" />
-                </div>
-              </div>
-
-              {/* Step 4 — Occupancy */}
-              <div className={cn('space-y-6', step !== 4 && 'hidden')}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Users className="size-4 text-muted-foreground" />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Occupancy & Income</span>
-                </div>
-                <div>
-                  <label htmlFor="occ" className="text-xs font-medium text-muted-foreground">Occupancy Status</label>
-                  <select id="occ" className={selectBase}>
-                    <option value="self_occupied">Self Occupied</option>
-                    <option value="rented">Rented</option>
-                    <option value="vacant">Vacant</option>
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="rent" className="text-xs font-medium text-muted-foreground">Monthly Rent (₹)</label>
-                  <input id="rent" type="number" min="0" placeholder="25000" className={inputBase} />
-                </div>
-              </div>
-
-              {/* Step 5 — Legal */}
-              <div className={cn('space-y-6', step !== 5 && 'hidden')}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Scale className="size-4 text-muted-foreground" />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Legal Status</span>
-                </div>
-                <p className="text-xs text-muted-foreground">Select all that apply to this property.</p>
-                <div className="flex flex-col gap-3">
-                  <ToggleChip id="freehold" label="Freehold Ownership" defaultChecked />
-                  <ToggleChip id="leasehold" label="Leasehold" />
-                  <ToggleChip id="ctitle" label="Clear Title" defaultChecked />
-                </div>
-              </div>
-            </CardContent>
-
-            {/* Navigation */}
-            <div className="flex items-center justify-between px-5 py-4 border-t border-border">
-              <button
-                type="button"
-                onClick={() => setStep(s => Math.max(0, s - 1))}
-                disabled={step === 0}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer"
-              >
-                <ChevronLeft className="size-3.5" /> Back
-              </button>
-
-              <div className="text-[10px] text-muted-foreground font-mono">
-                {step + 1} / {STEPS.length}
-              </div>
-
-              {step < STEPS.length - 1 ? (
-                <button
-                  type="submit"
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-foreground text-background text-xs font-semibold hover:bg-zinc-200 transition cursor-pointer"
-                >
-                  Next <ChevronRight className="size-3.5" />
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg bg-foreground text-background text-xs font-semibold hover:bg-zinc-200 disabled:opacity-40 transition cursor-pointer"
-                >
-                  {loading && <Loader2 className="size-3.5 animate-spin" />}
-                  {loading ? 'Running…' : 'Run Valuation'}
-                </button>
-              )}
             </div>
-          </form>
-        </Card>
 
-        {/* Hint */}
-        <p className="text-center text-[10px] text-zinc-700 mt-4">
-          Fields marked * are required. Other fields improve accuracy.
-        </p>
+            {/* ── Right Content ── */}
+            <div className="flex-1 flex flex-col">
+              <div className="flex-1 p-8">
+                {/* Errors */}
+                {errors && (
+                  <div className="mb-5 p-3 rounded-xl bg-red-50 border border-red-200">
+                    {errors.map((e, i) => <p key={i} className="text-xs text-red-600">{e}</p>)}
+                  </div>
+                )}
+
+                {/* Step 0 — Location */}
+                <div className={cn(step !== 0 && 'hidden')}>
+                  <StepHeading title="Property Location" subtitle="Enter the address or pick a location on the map" />
+                  <div className="space-y-5 mt-6">
+                    <Field id="address" label="Property Address" tip={TIPS.address}>
+                      <input id="address" placeholder="e.g. Sector 8, Rohini, New Delhi 110085" className={inputCls} />
+                    </Field>
+                    <Field id="lat" label="Latitude" tip={TIPS.lat}>
+                      <input id="lat" type="number" step="any" placeholder="28.7041" className={inputCls} />
+                    </Field>
+                    <Field id="lng" label="Longitude" tip={TIPS.lng}>
+                      <input id="lng" type="number" step="any" placeholder="77.1025" className={inputCls} />
+                    </Field>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setMapOpen(!mapOpen)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-white text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition cursor-pointer">
+                        <MapPin className="size-3.5 text-primary" /> Pick on Map
+                      </button>
+                      <button type="button" onClick={useMyLocation} disabled={geoLoading} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-white text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition cursor-pointer disabled:opacity-40">
+                        {geoLoading ? <Loader2 className="size-3.5 animate-spin text-primary" /> : <LocateFixed className="size-3.5 text-primary" />}
+                        Use My Location
+                      </button>
+                    </div>
+                    {mapOpen && (
+                      <div className="rounded-xl border border-border overflow-hidden shadow-sm">
+                        <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-border">
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Click to drop pin</span>
+                          <button type="button" onClick={() => setMapOpen(false)} className="text-muted-foreground hover:text-foreground cursor-pointer"><X className="size-3.5" /></button>
+                        </div>
+                        <div className="h-52">
+                          <MapContainer center={[pinLat || 20.5937, pinLng || 78.9629]} zoom={pinLat ? 15 : 5} className="h-full w-full">
+                            <TileLayer attribution='&copy; Google' url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}" />
+                            <MapClickHandler onPick={(lat, lng, addr) => { setPinLat(lat); setPinLng(lng); setPinAddress(addr) }} />
+                            {pinLat && pinLng && <Marker position={[pinLat, pinLng]} icon={customMarker} />}
+                            {pinLat && pinLng && <RecenterMap lat={pinLat} lng={pinLng} />}
+                          </MapContainer>
+                        </div>
+                        {pinLat && pinLng && (
+                          <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-t border-border">
+                            <span className="text-xs text-muted-foreground font-mono truncate max-w-[280px]">{pinAddress || `${pinLat.toFixed(4)}, ${pinLng.toFixed(4)}`}</span>
+                            <button type="button" onClick={applyPin} className="px-3 py-1 rounded-md bg-primary text-white text-[11px] font-semibold hover:bg-blue-700 transition cursor-pointer">Use this location</button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Step 1 — Classification */}
+                <div className={cn(step !== 1 && 'hidden')}>
+                  <StepHeading title="Property Classification" subtitle="Select the property type and sub-type" />
+                  <div className="space-y-5 mt-6">
+                    <Field id="ptype" label="Property Type" tip={TIPS.ptype} required>
+                      <select id="ptype" className={selectCls}>
+                        <option value="">Select type</option>
+                        <option value="Residential">Residential</option>
+                        <option value="Commercial">Commercial</option>
+                        <option value="Industrial">Industrial</option>
+                      </select>
+                    </Field>
+                    <Field id="stype" label="Sub-type" tip={TIPS.stype} required>
+                      <select id="stype" className={selectCls}>
+                        <option value="">Select sub-type</option>
+                        {SUBTYPES.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </Field>
+                  </div>
+                </div>
+
+                {/* Step 2 — Dimensions */}
+                <div className={cn(step !== 2 && 'hidden')}>
+                  <StepHeading title="Dimensions" subtitle="Enter area measurements in square feet" />
+                  <div className="space-y-5 mt-6">
+                    <Field id="carpet" label="Carpet Area" tip={TIPS.carpet} required>
+                      <input id="carpet" type="number" min="0" placeholder="1050" className={inputCls} />
+                    </Field>
+                    <Field id="builtup" label="Built-up Area" tip={TIPS.builtup}>
+                      <input id="builtup" type="number" min="0" placeholder="1250" className={inputCls} />
+                    </Field>
+                    <Field id="land" label="Land Area" tip={TIPS.land}>
+                      <input id="land" type="number" min="0" placeholder="0" className={inputCls} />
+                    </Field>
+                  </div>
+                </div>
+
+                {/* Step 3 — Structure */}
+                <div className={cn(step !== 3 && 'hidden')}>
+                  <StepHeading title="Structure Details" subtitle="Building age, floors, and accessibility" />
+                  <div className="space-y-5 mt-6">
+                    <Field id="age" label="Age (years)" tip={TIPS.age} required>
+                      <input id="age" type="number" min="0" placeholder="8" className={inputCls} />
+                    </Field>
+                    <Field id="tfloors" label="Total Floors" tip={TIPS.tfloors}>
+                      <input id="tfloors" type="number" min="1" placeholder="14" className={inputCls} />
+                    </Field>
+                    <Field id="ffrom" label="Floor (from)" tip={TIPS.ffrom}>
+                      <input id="ffrom" type="number" min="0" placeholder="4" className={inputCls} />
+                    </Field>
+                    <Field id="fto" label="Floor (to)" tip={TIPS.fto}>
+                      <input id="fto" type="number" min="0" placeholder="4" className={inputCls} />
+                    </Field>
+                    <Field id="lift_gaccess" label="Accessibility" tip="Indicate if the building has a lift or ground floor access.">
+                      <div className="flex gap-3">
+                        <Chip id="lift" label="Lift" defaultChecked />
+                        <Chip id="gaccess" label="Ground Access" />
+                      </div>
+                    </Field>
+                  </div>
+                </div>
+
+                {/* Step 4 — Occupancy */}
+                <div className={cn(step !== 4 && 'hidden')}>
+                  <StepHeading title="Occupancy & Income" subtitle="Current usage and rental details" />
+                  <div className="space-y-5 mt-6">
+                    <Field id="occ" label="Status" tip={TIPS.occ}>
+                      <select id="occ" className={selectCls}>
+                        <option value="self_occupied">Self Occupied</option>
+                        <option value="rented">Rented</option>
+                        <option value="vacant">Vacant</option>
+                      </select>
+                    </Field>
+                    <Field id="rent" label="Monthly Rent (₹)" tip={TIPS.rent}>
+                      <input id="rent" type="number" min="0" placeholder="25000" className={inputCls} />
+                    </Field>
+                  </div>
+                </div>
+
+                {/* Step 5 — Legal */}
+                <div className={cn(step !== 5 && 'hidden')}>
+                  <StepHeading title="Legal Status" subtitle="Select all that apply to this property" />
+                  <div className="space-y-6 mt-6">
+                    <Field id="legal_freehold" label="Freehold" tip={TIPS.freehold}>
+                      <Chip id="freehold" label="Freehold Ownership" defaultChecked />
+                    </Field>
+                    <Field id="legal_leasehold" label="Leasehold" tip={TIPS.leasehold}>
+                      <Chip id="leasehold" label="Leasehold" />
+                    </Field>
+                    <Field id="legal_ctitle" label="Clear Title" tip={TIPS.ctitle}>
+                      <Chip id="ctitle" label="Clear Title" defaultChecked />
+                    </Field>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer Nav */}
+              <div className="flex items-center justify-between px-8 py-4 border-t border-border bg-slate-50/50">
+                <button type="button" onClick={() => setStep(s => Math.max(0, s - 1))} disabled={step === 0}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer"
+                >
+                  <ChevronLeft className="size-4" /> Back
+                </button>
+                {step < STEPS.length - 1 ? (
+                  <button type="button" onClick={goNext}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-blue-700 shadow-md shadow-blue-500/20 transition cursor-pointer"
+                  >
+                    Continue <ArrowRight className="size-4" />
+                  </button>
+                ) : (
+                  <button type="submit" disabled={loading}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-blue-700 shadow-md shadow-blue-500/20 disabled:opacity-40 transition cursor-pointer"
+                  >
+                    {loading && <Loader2 className="size-4 animate-spin" />}
+                    {loading ? 'Running…' : 'Run Valuation'}
+                    {!loading && <ArrowRight className="size-4" />}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </form>
       </div>
     </div>
   )
 }
 
-/* ── Toggle Chip Component ── */
-function ToggleChip({ id, label, defaultChecked }: { id: string; label: string; defaultChecked?: boolean }) {
-  const [checked, setChecked] = useState(defaultChecked || false)
+/* ═══════════════════════════════════
+   SUB-COMPONENTS
+   ═══════════════════════════════════ */
+
+function StepHeading({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <label
-      htmlFor={id}
+    <div>
+      <h3 className="text-xl font-bold text-foreground">{title}</h3>
+      <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
+    </div>
+  )
+}
+
+function Field({ id, label, tip, required, children }: { id: string; label: string; tip?: string; required?: boolean; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col md:flex-row md:items-start gap-2 md:gap-8 pt-1">
+      <div className="w-full md:w-[35%] shrink-0 pt-2.5">
+        <label htmlFor={id} className="text-sm font-semibold text-slate-900">{label}{required && <span className="text-red-400 ml-0.5">*</span>}</label>
+        {tip && <p className="text-xs text-slate-400 mt-1 leading-relaxed font-medium">{tip}</p>}
+      </div>
+      <div className="flex-1">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function Chip({ id, label, defaultChecked }: { id: string; label: string; defaultChecked?: boolean }) {
+  const [on, setOn] = useState(defaultChecked || false)
+  return (
+    <label htmlFor={id}
       className={cn(
-        'flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-all',
-        checked
-          ? 'border-foreground/20 bg-foreground/5 text-foreground'
-          : 'border-border bg-transparent text-muted-foreground hover:border-zinc-700'
+        'flex items-center gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-all',
+        on ? 'border-primary bg-primary/5 text-foreground shadow-sm' : 'border-border bg-white text-muted-foreground hover:border-slate-300'
       )}
     >
-      <input
-        type="checkbox"
-        id={id}
-        checked={checked}
-        onChange={() => setChecked(!checked)}
-        className="sr-only"
-      />
+      <input type="checkbox" id={id} checked={on} onChange={() => setOn(!on)} className="sr-only" />
       <div className={cn(
-        'w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all',
-        checked ? 'border-foreground bg-foreground' : 'border-zinc-600'
+        'w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all shrink-0',
+        on ? 'border-primary bg-primary' : 'border-slate-300'
       )}>
-        {checked && <div className="w-1.5 h-1.5 rounded-full bg-background" />}
+        {on && <div className="w-2 h-2 rounded-full bg-white" />}
       </div>
-      <span className="text-sm font-medium">{label}</span>
+      <span className="text-sm font-medium flex-1">{label}</span>
     </label>
   )
+}
+
+/* ── Leaflet Helpers ── */
+function MapClickHandler({ onPick }: { onPick: (lat: number, lng: number, addr: string) => void }) {
+  useMapEvents({
+    async click(e) {
+      const { lat, lng } = e.latlng
+      let addr = ''
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+        const data = await res.json()
+        if (data.display_name) addr = data.display_name
+      } catch {}
+      onPick(lat, lng, addr)
+    },
+  })
+  return null
+}
+
+function RecenterMap({ lat, lng }: { lat: number; lng: number }) {
+  const map = useMap()
+  useEffect(() => { map.setView([lat, lng], Math.max(map.getZoom(), 14)) }, [lat, lng, map])
+  return null
 }

@@ -4,8 +4,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -33,30 +33,31 @@
 
 :root {
   --radius: 0.625rem;
-  --background: #0a0a0a;
-  --foreground: #fafafa;
-  --card: #111113;
-  --card-foreground: #fafafa;
-  --popover: #111113;
-  --popover-foreground: #fafafa;
-  --primary: #fafafa;
-  --primary-foreground: #0a0a0a;
-  --secondary: #1c1c1e;
-  --secondary-foreground: #fafafa;
-  --muted: #1c1c1e;
-  --muted-foreground: #71717a;
-  --accent: #1c1c1e;
-  --accent-foreground: #fafafa;
+  --background: #f0f7ff;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #334155;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #eff6ff;
+  --accent-foreground: #1e40af;
   --destructive: #ef4444;
-  --destructive-foreground: oklch(1 0 0);
-  --border: #27272a;
-  --input: #27272a;
-  --ring: #3f3f46;
+  --destructive-foreground: #ffffff;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #2563eb;
 }
 
 body {
   font-family: var(--font-sans);
-  background: var(--background);
+  background: linear-gradient(135deg, #dbeafe 0%, #e0f2fe 30%, #f0f7ff 60%, #dbeafe 100%);
+  background-attachment: fixed;
   color: var(--foreground);
   min-height: 100vh;
   line-height: 1.6;
@@ -67,12 +68,16 @@ body {
 /* Kill all blue outlines */
 *:focus { outline: none; }
 *:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-*, *::before, *::after { outline-color: var(--ring); }
 
-::-webkit-scrollbar { width: 5px; height: 5px; }
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* Leaflet dark tile override — now light */
+.leaflet-container { background: #f0f7ff !important; }
 
 @media print {
-  body { background: #fff; color: #000; }
+  body { background: #fff; }
 }

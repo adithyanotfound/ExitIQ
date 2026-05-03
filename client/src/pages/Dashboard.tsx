@@ -39,7 +39,7 @@ const mainChartConfig = {
   resale: { label: 'Resale Index', color: 'var(--color-teal-500)' },
 } satisfies ChartConfig
 
-const tooltipStyle = { background: '#0a0a0a', border: '1px solid #27272a', borderRadius: 10, fontSize: 11, padding: '8px 12px' }
+const tooltipStyle = { background: '#ffffff', border: '1px solid #e2e8f0', color: '#0f172a', borderRadius: 10, fontSize: 11, padding: '8px 12px' }
 const DONUT_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#06b6d4', '#ec4899', '#8b5cf6', '#ef4444']
 
 /* ══════════════════════════════════════════════════════════
@@ -140,7 +140,7 @@ export default function Dashboard({ data: { result: d, debug, input } }: { data:
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] pt-20 pb-12 px-4 md:px-6 print:bg-white print:text-black print:pt-0">
+    <div className="min-h-screen pt-8 pb-12 px-4 md:px-6 print:bg-white print:text-black print:pt-0">
       <div className="max-w-6xl mx-auto">
 
         {/* ── Header ── */}
@@ -358,7 +358,7 @@ export default function Dashboard({ data: { result: d, debug, input } }: { data:
               </div>
             </div>
             <iframe className="w-full h-72 border-0" src={`https://www.google.com/maps?q=${mapQuery}&output=embed`} allowFullScreen loading="lazy" referrerPolicy="no-referrer-when-downgrade" title="Map"
-              style={{ filter: 'invert(0.92) hue-rotate(180deg) saturate(0.3) brightness(0.8)' }}
+              style={{ filter: 'saturate(0.8) brightness(0.95)' }}
             />
           </Card>
 
