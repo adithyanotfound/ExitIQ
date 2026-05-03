@@ -101,9 +101,11 @@ function runFalsePositiveChecks(input, features) {
     }
   }
 
-  if (input.age_years > 30 && features.imageFeatures.available && features.imageFeatures.quality_score > 0.8) {
-    flags.push('old_property_high_quality_images: declared age conflicts with near-new appearance');
-    confidencePenalty += 0.06;
+  if (features.geminiData?.risk_flags && features.geminiData.risk_flags.length > 0) {
+    features.geminiData.risk_flags.forEach(f => {
+      flags.push(`ai_vision_flag: ${f}`);
+      confidencePenalty += 0.05;
+    });
   }
 
   // D – Legal risk suppression
@@ -116,7 +118,8 @@ function computeConfidence(features, fpResult) {
   let confidence = 0.80; // base
 
   // Boost for rich inputs
-  if (features.imageFeatures.available) confidence += 0.05;
+  if (features.geminiData) confidence += 0.05;
+  if (features.geminiData?.confidence_adjustment) confidence += features.geminiData.confidence_adjustment;
   if (features.rentMonthly > 0) confidence += 0.03;
   if (features.builtupCarpetRatio !== null) confidence += 0.02;
 

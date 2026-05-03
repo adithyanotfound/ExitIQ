@@ -21,7 +21,12 @@ function computeResaleIndex(f) {
     accessibility:         f.accessibility.lift ? 0.80 : f.accessibility.ground_floor_access ? 0.70 : 0.40,
   };
 
-  const raw = weightedSum(scores, LIQUIDITY_WEIGHTS);
+  let raw = weightedSum(scores, LIQUIDITY_WEIGHTS);
+  
+  if (f.geminiData?.liquidity_impact_factor) {
+    raw *= f.geminiData.liquidity_impact_factor;
+  }
+  
   return Math.round(clamp(raw * 100, 0, 100));
 }
 

@@ -18,6 +18,7 @@
   "type": "commonjs",
   "dependencies": {
     "@google/genai": "^1.51.0",
+    "@google/generative-ai": "^0.24.1",
     "axios": "^1.15.2",
     "cloudinary": "^2.10.0",
     "cors": "^2.8.5",

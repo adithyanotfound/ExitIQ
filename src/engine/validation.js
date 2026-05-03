@@ -79,7 +79,10 @@ function validateInput(raw) {
       clear_title: raw.legal_status?.clear_title !== false,
       leasehold:   Boolean(raw.legal_status?.leasehold),
     },
-    images:           Array.isArray(raw.images) ? raw.images.filter(Boolean) : [],
+    images: {
+      exterior: Array.isArray(raw.images?.exterior) ? raw.images.exterior.filter(Boolean) : [],
+      interior: Array.isArray(raw.images?.interior) ? raw.images.interior.filter(Boolean) : []
+    },
   };
 
   // Enforce freehold / leasehold mutual exclusion server-side

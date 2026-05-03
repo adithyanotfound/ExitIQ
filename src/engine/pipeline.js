@@ -14,6 +14,7 @@ const { computeMarketValue, computeDistressValue } = require('./valuation');
 const { computeResaleIndex, computeTimeToLiquidate } = require('./liquidity');
 const { runFalsePositiveChecks, computeConfidence }  = require('./falsePositive');
 const { buildOutput }                              = require('./output');
+const { analyzePropertyImages }                    = require('./gemini');
 
 async function runPipeline(rawInput) {
   // 1. Validate
@@ -23,11 +24,19 @@ async function runPipeline(rawInput) {
   }
   const input = validation.data;
 
-  // 2. Geocode & POI enrichment (pass sub_type for niche penalty)
-  const geoData = await analyzeLocation(input.address, input.sub_type);
+  // 2. Geocode & POI enrichment + AI Vision Analysis (Parallel)
+  const [geoData, geminiData] = await Promise.all([
+    analyzeLocation(input.address, input.sub_type),
+    analyzePropertyImages(input.images, input)
+  ]);
+
+  if (geminiData?.risk_flags?.some(f => f.toLowerCase().includes('reject') || f.toLowerCase().includes('blurry'))) {
+    return { success: false, errors: ['Image Quality Rejected: Please upload clear, relevant photos of the property.'] };
+  }
 
   // 3. Feature engineering (now receives geo data)
   const features = engineerFeatures(input, geoData);
+  features.geminiData = geminiData; // attach AI insights for downstream usage
 
   // 4. Valuation
   const marketValue   = computeMarketValue(features);
@@ -73,6 +82,7 @@ async function runPipeline(rawInput) {
         total_pois: features.geoTotalPOIs,
         scores: features.geoScores,
       },
+      gemini_ai: geminiData || null,
       floor: {
         from: features.floorFrom,
         to: features.floorTo,

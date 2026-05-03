@@ -49,7 +49,12 @@ function computeMarketValue(f) {
   const rawAdj = Object.values(adjustments).reduce((s, v) => s + v, 0);
   // Clamp total adjustment so value never drops below 20% of circle-rate anchor
   const totalAdj = clamp(rawAdj, -0.80, 2.0);
-  const midValue = baseValue * (1 + totalAdj);
+  let midValue = baseValue * (1 + totalAdj);
+
+  if (f.geminiData?.valuation_multiplier) {
+    midValue = midValue * f.geminiData.valuation_multiplier;
+    adjustments.ai_vision_modifier = f.geminiData.valuation_multiplier - 1.0;
+  }
 
   let spread = 0.08;
   if (f.zone === 'rural' || f.zone === 'periurban') spread += 0.04;

@@ -78,7 +78,8 @@ export default function Form({ onResult }: FormProps) {
   const [titleStatus, setTitleStatus] = useState<'ctitle' | 'complications'>('ctitle')
   
   // Photos State
-  const [images, setImages] = useState<string[]>([])
+  const [exteriorImages, setExteriorImages] = useState<string[]>([])
+  const [interiorImages, setInteriorImages] = useState<string[]>([])
   const [showPhotoUpload, setShowPhotoUpload] = useState(false)
   
   const geocodeTimeout = useRef<any>(null)
@@ -175,21 +176,23 @@ export default function Form({ onResult }: FormProps) {
     }
   }
 
-  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>, type: 'exterior' | 'interior') {
     const files = Array.from(e.target.files || [])
     files.forEach(file => {
       const reader = new FileReader()
       reader.onloadend = () => {
         if (typeof reader.result === 'string') {
-          setImages(prev => [...prev, reader.result as string])
+          if (type === 'exterior') setExteriorImages(prev => [...prev, reader.result as string])
+          else setInteriorImages(prev => [...prev, reader.result as string])
         }
       }
       reader.readAsDataURL(file)
     })
   }
 
-  function removeImage(index: number) {
-    setImages(prev => prev.filter((_, i) => i !== index))
+  function removeImage(index: number, type: 'exterior' | 'interior') {
+    if (type === 'exterior') setExteriorImages(prev => prev.filter((_, i) => i !== index))
+    else setInteriorImages(prev => prev.filter((_, i) => i !== index))
   }
 
   const startF = typeof ffrom === 'number' ? ffrom : 0
@@ -240,6 +243,11 @@ export default function Form({ onResult }: FormProps) {
       return
     }
 
+    if (exteriorImages.length === 0 || interiorImages.length === 0) {
+      setErrors(['Please upload at least 1 exterior and 1 interior photo to continue.'])
+      return
+    }
+
     setLoading(true); setErrors(null)
     const payload = {
       address: address, lat_long: { lat: lat ? parseFloat(lat) : null, lng: lng ? parseFloat(lng) : null },
@@ -254,7 +262,10 @@ export default function Form({ onResult }: FormProps) {
         clear_title: titleStatus === 'ctitle', 
         leasehold: ownershipType === 'leasehold' 
       },
-      images: images,
+      images: {
+        exterior: exteriorImages,
+        interior: interiorImages
+      },
       // pass per floor area if applicable
       floor_areas: numUnitFloors > 1 && !sameArea ? floorAreas : undefined
     }
@@ -278,31 +289,90 @@ export default function Form({ onResult }: FormProps) {
             <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight mb-3">Property Photos</h2>
             <p className="text-slate-500 font-medium max-w-lg mx-auto mb-10">Upload images from your device or take pictures directly. These will be analyzed by our AI to assess the property condition.</p>
             
-            <div className="flex flex-col sm:flex-row gap-5 mb-8">
-              <label className="flex-1 flex flex-col items-center justify-center p-8 border-2 border-dashed border-slate-300 rounded-2xl hover:border-primary hover:bg-primary/5 transition-all cursor-pointer group bg-slate-50/50">
-                <Upload className="size-8 text-slate-400 group-hover:text-primary mb-3 transition-colors" />
-                <span className="text-base font-semibold text-slate-700">Upload Files</span>
-                <span className="text-xs text-slate-400 mt-1">Select from your device</span>
-                <input type="file" multiple accept="image/*" className="hidden" onChange={handleImageUpload} />
-              </label>
-              <label className="flex-1 flex flex-col items-center justify-center p-8 border-2 border-dashed border-slate-300 rounded-2xl hover:border-primary hover:bg-primary/5 transition-all cursor-pointer group bg-slate-50/50">
-                <Camera className="size-8 text-slate-400 group-hover:text-primary mb-3 transition-colors" />
-                <span className="text-base font-semibold text-slate-700">Take Photo</span>
-                <span className="text-xs text-slate-400 mt-1">Use your camera</span>
-                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageUpload} />
-              </label>
-            </div>
-            
-            {images.length > 0 && (
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-4 text-left animate-in fade-in slide-in-from-bottom-4">
-                {images.map((src, i) => (
-                  <div key={i} className="relative aspect-square rounded-xl overflow-hidden group shadow-sm border border-slate-200">
-                    <img src={src} alt={`Upload ${i+1}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                    <button type="button" onClick={() => removeImage(i)} className="absolute top-2 right-2 bg-black/60 hover:bg-red-500 text-white p-2 rounded-lg backdrop-blur-md transition-all opacity-0 group-hover:opacity-100 shadow-lg">
-                      <Trash2 className="size-4" />
-                    </button>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 text-left">
+              {/* Exterior Photos */}
+              <div className="bg-slate-50/50 rounded-3xl p-6 border border-slate-200 shadow-sm relative">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                    <Building2 className="size-5" />
                   </div>
-                ))}
+                  <div>
+                    <h3 className="font-bold text-slate-800">Exterior Photos <span className="text-red-500">*</span></h3>
+                    <p className="text-[11px] text-slate-500">Building, surroundings, road access</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 mb-4">
+                  <label className="flex-1 flex flex-col items-center justify-center py-4 border-2 border-dashed border-slate-300 rounded-xl hover:border-primary hover:bg-primary/5 transition-all cursor-pointer group bg-white">
+                    <Upload className="size-5 text-slate-400 group-hover:text-primary mb-1 transition-colors" />
+                    <span className="text-xs font-semibold text-slate-600">Upload</span>
+                    <input type="file" multiple accept="image/*" className="hidden" onChange={e => handleImageUpload(e, 'exterior')} />
+                  </label>
+                  <label className="flex-1 flex flex-col items-center justify-center py-4 border-2 border-dashed border-slate-300 rounded-xl hover:border-primary hover:bg-primary/5 transition-all cursor-pointer group bg-white">
+                    <Camera className="size-5 text-slate-400 group-hover:text-primary mb-1 transition-colors" />
+                    <span className="text-xs font-semibold text-slate-600">Camera</span>
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => handleImageUpload(e, 'exterior')} />
+                  </label>
+                </div>
+                
+                {exteriorImages.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {exteriorImages.map((src, i) => (
+                      <div key={i} className="relative aspect-square rounded-lg overflow-hidden group shadow-sm border border-slate-200">
+                        <img src={src} alt={`Exterior ${i+1}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                        <button type="button" onClick={() => removeImage(i, 'exterior')} className="absolute top-1 right-1 bg-black/60 hover:bg-red-500 text-white p-1 rounded-md backdrop-blur-md transition-all opacity-0 group-hover:opacity-100 shadow-lg">
+                          <Trash2 className="size-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Interior Photos */}
+              <div className="bg-slate-50/50 rounded-3xl p-6 border border-slate-200 shadow-sm relative">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                    <Layers className="size-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-800">Interior Photos <span className="text-red-500">*</span></h3>
+                    <p className="text-[11px] text-slate-500">Rooms, kitchen, bathroom, condition</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 mb-4">
+                  <label className="flex-1 flex flex-col items-center justify-center py-4 border-2 border-dashed border-slate-300 rounded-xl hover:border-primary hover:bg-primary/5 transition-all cursor-pointer group bg-white">
+                    <Upload className="size-5 text-slate-400 group-hover:text-primary mb-1 transition-colors" />
+                    <span className="text-xs font-semibold text-slate-600">Upload</span>
+                    <input type="file" multiple accept="image/*" className="hidden" onChange={e => handleImageUpload(e, 'interior')} />
+                  </label>
+                  <label className="flex-1 flex flex-col items-center justify-center py-4 border-2 border-dashed border-slate-300 rounded-xl hover:border-primary hover:bg-primary/5 transition-all cursor-pointer group bg-white">
+                    <Camera className="size-5 text-slate-400 group-hover:text-primary mb-1 transition-colors" />
+                    <span className="text-xs font-semibold text-slate-600">Camera</span>
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => handleImageUpload(e, 'interior')} />
+                  </label>
+                </div>
+                
+                {interiorImages.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {interiorImages.map((src, i) => (
+                      <div key={i} className="relative aspect-square rounded-lg overflow-hidden group shadow-sm border border-slate-200">
+                        <img src={src} alt={`Interior ${i+1}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                        <button type="button" onClick={() => removeImage(i, 'interior')} className="absolute top-1 right-1 bg-black/60 hover:bg-red-500 text-white p-1 rounded-md backdrop-blur-md transition-all opacity-0 group-hover:opacity-100 shadow-lg">
+                          <Trash2 className="size-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Errors */}
+            {errors && (
+              <div className="mb-6 p-3 rounded-xl bg-red-50 border border-red-200 text-left">
+                {errors.map((e, i) => <p key={i} className="text-xs font-medium text-red-600">{e}</p>)}
               </div>
             )}
           </div>
@@ -495,11 +565,21 @@ export default function Form({ onResult }: FormProps) {
                     <Field id="tfloors" label="Total Floors" tip={TIPS.tfloors}>
                       <input id="tfloors" type="number" min="1" placeholder="14" value={tfloors} onChange={e => handleTfloorsChange(e.target.value)} className={inputCls} />
                     </Field>
-                    <Field id="ffrom" label="Floor (from)" tip={TIPS.ffrom}>
-                      <input id="ffrom" type="number" min="0" placeholder="0" value={ffrom} onChange={e => setFfrom(e.target.value ? parseInt(e.target.value) : '')} className={inputCls} />
+                    <Field id="ffrom" label="Floor Number" tip="The starting floor of the property (0 for ground)">
+                      <input id="ffrom" type="number" min="0" placeholder="0" value={ffrom} onChange={e => {
+                        const val = e.target.value ? parseInt(e.target.value) : '';
+                        setFfrom(val);
+                        if (val !== '' && fto === '') setFto(val);
+                        else if (val !== '' && typeof fto === 'number' && fto < val) setFto(val);
+                      }} className={inputCls} />
                     </Field>
-                    <Field id="fto" label="Floor (to)" tip={TIPS.fto}>
-                      <input id="fto" type="number" min="0" placeholder="0" value={fto} onChange={e => setFto(e.target.value ? parseInt(e.target.value) : '')} className={inputCls} />
+                    <Field id="num_floors" label="Number of Floors" tip="How many floors does this property span? (e.g., 1 for typical apartment, 2 for duplex)">
+                      <input id="num_floors" type="number" min="1" placeholder="1" value={typeof fto === 'number' && typeof ffrom === 'number' ? Math.max(1, fto - ffrom + 1) : 1} onChange={e => {
+                        const span = parseInt(e.target.value) || 1;
+                        if (typeof ffrom === 'number') {
+                          setFto(ffrom + Math.max(1, span) - 1);
+                        }
+                      }} className={inputCls} />
                     </Field>
                     <Field id="lift_gaccess" label="Accessibility" tip="Indicate if the building has a lift or ground floor access.">
                       <div className="flex gap-3">

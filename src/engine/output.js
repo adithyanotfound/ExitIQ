@@ -36,7 +36,14 @@ function identifyKeyDrivers(features, marketValue) {
   // Rental
   if (features.rentalYield > 0.04) drivers.push('healthy_rental_yield');
 
-  return [...new Set(drivers)].slice(0, 5);
+  // AI Insights
+  if (features.geminiData?.key_drivers) {
+    features.geminiData.key_drivers.forEach(driver => {
+      drivers.push(`ai_insight: ${driver}`);
+    });
+  }
+
+  return [...new Set(drivers)].slice(0, 8);
 }
 
 function identifyRiskFlags(features, fpResult) {
@@ -57,7 +64,7 @@ function identifyRiskFlags(features, fpResult) {
 
   // Age
   if (features.ageYears > 25) risks.push('significant_building_age');
-  if (features.ageBucket === 'old' && !features.imageFeatures.available) {
+  if (features.ageBucket === 'old' && (!features.geminiData)) {
     risks.push('old_property_no_visual_verification');
   }
 
@@ -69,7 +76,14 @@ function identifyRiskFlags(features, fpResult) {
     risks.push('high_micro_market_competition');
   }
 
-  return [...new Set(risks)].slice(0, 5);
+  // AI Vision Risks
+  if (features.geminiData?.risk_flags) {
+    features.geminiData.risk_flags.forEach(flag => {
+      risks.push(`ai_vision_flag: ${flag}`);
+    });
+  }
+
+  return [...new Set(risks)].slice(0, 8);
 }
 
 function formatDriverName(key) {
