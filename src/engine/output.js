@@ -27,19 +27,19 @@ function identifyKeyDrivers(features, marketValue) {
   }
 
   // Age bucket
-  if (features.ageBucket === 'new') drivers.push('new_construction');
-  else if (features.ageBucket === 'mid_age') drivers.push('mid_age_building');
+  if (features.ageBucket === 'new') drivers.push('New Construction');
+  else if (features.ageBucket === 'mid_age') drivers.push('Mid Age Building');
 
   // Infrastructure
-  if (features.infraScore > 0.7) drivers.push('strong_infrastructure_access');
+  if (features.infraScore > 0.7) drivers.push('Strong Infrastructure Access');
 
   // Rental
-  if (features.rentalYield > 0.04) drivers.push('healthy_rental_yield');
+  if (features.rentalYield > 0.04) drivers.push('Healthy Rental Yield');
 
   // AI Insights
   if (features.geminiData?.key_drivers) {
     features.geminiData.key_drivers.forEach(driver => {
-      drivers.push(`ai_insight: ${driver}`);
+      drivers.push(driver);
     });
   }
 
@@ -55,31 +55,31 @@ function identifyRiskFlags(features, fpResult) {
   }
 
   // Legal
-  if (!features.legalStatus.clear_title) risks.push('unclear_title');
-  if (features.legalStatus.leasehold) risks.push('leasehold_property');
+  if (!features.legalStatus.clear_title) risks.push('unclear title');
+  if (features.legalStatus.leasehold) risks.push('leasehold property');
 
   // Market
-  if (features.marketActivity < 0.4) risks.push('low_market_activity');
-  if (features.supplyDemandBalance < 0.4) risks.push('weak_demand');
+  if (features.marketActivity < 0.4) risks.push('low market activity');
+  if (features.supplyDemandBalance < 0.4) risks.push('weak demand');
 
   // Age
-  if (features.ageYears > 25) risks.push('significant_building_age');
+  if (features.ageYears > 25) risks.push('significant building age');
   if (features.ageBucket === 'old' && (!features.geminiData)) {
-    risks.push('old_property_no_visual_verification');
+    risks.push('old property, no visual verification');
   }
 
   // Fungibility
-  if (features.fungibility < 0.35) risks.push('niche_asset_low_fungibility');
+  if (features.fungibility < 0.35) risks.push('niche asset, low fungibility');
 
   // Competition
   if (features.marketActivity > 0.80 && features.zone === 'urban') {
-    risks.push('high_micro_market_competition');
+    risks.push('high micro market competition');
   }
 
   // AI Vision Risks
   if (features.geminiData?.risk_flags) {
     features.geminiData.risk_flags.forEach(flag => {
-      risks.push(`ai_vision_flag: ${flag}`);
+      risks.push(flag);
     });
   }
 
@@ -87,7 +87,12 @@ function identifyRiskFlags(features, fpResult) {
 }
 
 function formatDriverName(key) {
-  return key.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
+  return key
+    .replace(/([A-Z])/g, '_$1')
+    .split('_')
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
 }
 
 function buildOutput(marketValue, distressValue, resaleIndex, timeToLiquidate, confidence, features, fpResult) {

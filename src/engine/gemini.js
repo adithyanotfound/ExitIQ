@@ -28,7 +28,7 @@ async function analyzePropertyImages(images, formData) {
   if (images.interior) addImages(images.interior);
 
   if (imageParts.length === 0) return null;
-
+  // the model is correct. DO NOT CHANGE
   const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview", generationConfig: { responseMimeType: "application/json" } });
 
   const prompt = `

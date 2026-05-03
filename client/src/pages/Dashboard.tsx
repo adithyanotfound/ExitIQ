@@ -1,10 +1,11 @@
-import { useState } from 'react'
-import { ArrowUp, ArrowDown, Download, FileJson, MapPin, Clock, Shield, TrendingUp } from 'lucide-react'
-import { Line, LineChart, XAxis, YAxis, ReferenceLine, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, PieChart, Pie } from 'recharts'
+import { useState, useMemo } from 'react'
+import { ArrowUp, ArrowDown, Download, FileJson, MapPin, Clock, Shield, TrendingUp, Info, Activity, Target, Menu, X, LayoutDashboard, Map as MapIcon, FileText, CheckCircle2 } from 'lucide-react'
+import { Line, LineChart, XAxis, YAxis, ReferenceLine, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, PieChart, Pie, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 /* ── Helpers ── */
 function fmt(n: number) {
@@ -18,7 +19,6 @@ function downloadJSON(data: any, filename: string) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); URL.revokeObjectURL(a.href)
 }
 
-/* ── Sparkline data generator — creates a wavy curve from start→end ── */
 function generateSparkline(startVal: number, endVal: number, points = 30) {
   const data = []
   for (let i = 0; i < points; i++) {
@@ -26,418 +26,498 @@ function generateSparkline(startVal: number, endVal: number, points = 30) {
     const base = startVal + (endVal - startVal) * t
     const wave = Math.sin(t * Math.PI * 4) * (endVal - startVal) * 0.15
     const noise = (Math.random() - 0.5) * (endVal - startVal) * 0.08
-    data.push({ value: Math.round(base + wave + noise) })
+    data.push({ value: Math.round(base + wave + noise), index: i })
   }
   return data
 }
 
-/* ── Chart configs ── */
-const mainChartConfig = {
-  market: { label: 'Market Value', color: 'var(--color-emerald-500)' },
-  distress: { label: 'Distress Value', color: 'var(--color-amber-500)' },
-  confidence: { label: 'Confidence', color: 'var(--color-sky-500)' },
-  resale: { label: 'Resale Index', color: 'var(--color-teal-500)' },
-} satisfies ChartConfig
-
 const tooltipStyle = { background: '#ffffff', border: '1px solid #e2e8f0', color: '#0f172a', borderRadius: 10, fontSize: 11, padding: '8px 12px' }
-const DONUT_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#06b6d4', '#ec4899', '#8b5cf6', '#ef4444']
 
-/* ══════════════════════════════════════════════════════════
-   DASHBOARD COMPONENT
-   ══════════════════════════════════════════════════════════ */
 export default function Dashboard({ data: { result: d, debug, input } }: { data: any }) {
-  const [showDebug, setShowDebug] = useState(false)
-  const [selectedMetric, setSelectedMetric] = useState<string>('market')
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'location' | 'report'>('dashboard')
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+
   const geo = debug?.geo || {}
   const adj = debug?.adjustments || {}
+  const baseValue = debug?.baseValue || (d?.market_value_range?.[0] ?? 0)
+  const confPct = Math.round((d?.confidence_score ?? 0) * 100)
+  
+  const mapQuery = encodeURIComponent(geo.resolved_address || input?.address || '')
+  const timeToSell = d?.estimated_time_to_sell_days || [30, 90]
+  const drivers = d?.key_drivers || []
+  const riskFlags = d?.risk_flags || []
 
-  const confPct = Math.round(d.confidence_score * 100)
-  const resaleLabel = d.resale_potential_index >= 80 ? 'Highly Liquid' : d.resale_potential_index >= 50 ? 'Moderate' : 'Illiquid'
-  const resaleColor = d.resale_potential_index >= 80 ? '#10b981' : d.resale_potential_index >= 50 ? '#f59e0b' : '#ef4444'
+  /* ── Chart Data ── */
+  const waterfallData = useMemo(() => {
+    const data = []
+    let runningTotal = baseValue
+    data.push({ name: 'Base Value', value: baseValue, displayValue: baseValue, fill: '#3b82f6', isTotal: true })
+    Object.entries(adj).forEach(([key, multiplier]: [string, any]) => {
+      if (typeof multiplier !== 'number' || multiplier === 0) return
+      const amount = baseValue * multiplier
+      data.push({ 
+        name: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
+        value: amount, displayValue: amount,
+        fill: amount >= 0 ? '#10b981' : '#ef4444' 
+      })
+      runningTotal += amount
+    })
+    data.push({ name: 'Market Value', value: runningTotal, displayValue: runningTotal, fill: '#0f172a', isTotal: true })
+    return data
+  }, [baseValue, adj])
 
-  /* Sparkline cards data */
-  const metricCards = [
-    {
-      key: 'market', label: 'Market Value', icon: TrendingUp,
-      value: d.market_value_range[1], previousValue: d.market_value_range[0],
-      format: fmt, color: 'var(--color-emerald-500)',
-      sparkData: generateSparkline(d.market_value_range[0], d.market_value_range[1]),
-    },
-    {
-      key: 'distress', label: 'Distress Value', icon: ArrowDown,
-      value: d.distress_value_range[1], previousValue: d.distress_value_range[0],
-      format: fmt, color: 'var(--color-amber-500)',
-      sparkData: generateSparkline(d.distress_value_range[0], d.distress_value_range[1]),
-    },
-    {
-      key: 'confidence', label: 'Confidence', icon: Shield,
-      value: confPct, previousValue: 50,
-      format: (v: number) => `${v}%`, color: 'var(--color-sky-500)',
-      sparkData: generateSparkline(40, confPct),
-    },
-    {
-      key: 'resale', label: 'Resale Potential', icon: Clock,
-      value: d.resale_potential_index, previousValue: 50,
-      format: (v: number) => `${v}/100`, color: 'var(--color-teal-500)',
-      sparkData: generateSparkline(30, d.resale_potential_index),
-    },
-  ]
+  const radarData = useMemo(() => {
+    const scores = geo.scores || {}
+    return [
+      { subject: 'Infrastructure', A: Math.round((scores.infra_score ?? 0) * 100) },
+      { subject: 'Commercial', A: Math.round((scores.commercial_score ?? 0) * 100) },
+      { subject: 'Livability', A: Math.round((scores.livability_score ?? 0) * 100) },
+      { subject: 'Location Premium', A: Math.round((scores.location_premium ?? 0) * 100) },
+      { subject: 'Connectivity', A: Math.round(((geo.total_pois ?? 0) / 100) * 100) },
+    ]
+  }, [geo])
 
-  /* Main interactive chart data — simulate a valuation timeline */
-  const mainChartData = Array.from({ length: 24 }, (_, i) => {
-    const month = new Date(2024, i).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
-    const marketBase = d.market_value_range[0] + (d.market_value_range[1] - d.market_value_range[0]) * (i / 23)
-    const distressBase = d.distress_value_range[0] + (d.distress_value_range[1] - d.distress_value_range[0]) * (i / 23)
-    const wave = Math.sin(i * 0.5) * (d.market_value_range[1] - d.market_value_range[0]) * 0.08
-    return {
-      date: month,
-      market: Math.round(marketBase + wave),
-      distress: Math.round(distressBase + wave * 0.6),
-      confidence: Math.round(40 + (confPct - 40) * (i / 23) + Math.sin(i * 0.7) * 5),
-      resale: Math.round(30 + (d.resale_potential_index - 30) * (i / 23) + Math.sin(i * 0.9) * 4),
+  const generatePDFReport = () => {
+    const doc = new jsPDF()
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(22)
+    doc.text('ExitIQ Property Valuation Report', 20, 20)
+    
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`Address: ${input?.address || 'N/A'}`, 20, 30)
+    doc.text(`Property Type: ${input?.property_type} - ${input?.sub_type}`, 20, 38)
+    
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(16)
+    doc.text('Valuation Summary', 20, 50)
+    
+    autoTable(doc, {
+      startY: 55,
+      head: [['Metric', 'Value']],
+      body: [
+        ['Estimated Market Value', `${fmt(d?.market_value_range?.[0] ?? 0)} - ${fmt(d?.market_value_range?.[1] ?? 0)}`],
+        ['Distress Valuation', `${fmt(d?.distress_value_range?.[0] ?? 0)} - ${fmt(d?.distress_value_range?.[1] ?? 0)}`],
+        ['Confidence Score', `${confPct}%`],
+        ['Liquidity Index', `${d?.resale_potential_index ?? 0}/100`],
+        ['Est. Days to Sell', `${timeToSell[0]} - ${timeToSell[1]} Days`]
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [59, 130, 246] }
+    })
+    
+    const finalY = (doc as any).lastAutoTable.finalY || 55
+    
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(16)
+    doc.text('Key Risk Flags', 20, finalY + 15)
+    
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(11)
+    let yPos = finalY + 25
+    if (riskFlags.length > 0) {
+      riskFlags.forEach((f: string) => {
+        doc.text(`• ${f}`, 20, yPos)
+        yPos += 7
+      })
+    } else {
+      doc.text('• No major risks identified. Clear title assumed.', 20, yPos)
+      yPos += 7
     }
-  })
-
-  /* Adjustment donut */
-  const adjEntries = Object.entries(adj)
-    .map(([k, v]: [string, any]) => ({ name: k.replace(/_/g, ' '), value: Math.round(Math.abs(v as number) * 100) }))
-    .filter(a => a.value > 0)
-
-  /* Value comparison bars */
-  const compData = [
-    { name: 'Market High', value: d.market_value_range[1], color: '#34d399' },
-    { name: 'Market Low', value: d.market_value_range[0], color: '#10b981' },
-    { name: 'Distress High', value: d.distress_value_range[1], color: '#fbbf24' },
-    { name: 'Distress Low', value: d.distress_value_range[0], color: '#f59e0b' },
-  ]
-
-  const confData = [
-    { name: 'Confidence', value: confPct, fill: '#10b981' },
-    { name: '', value: 100 - confPct, fill: '#1c1c1e' },
-  ]
-
-  const mapQuery = encodeURIComponent(geo.resolved_address || input.address || '')
-
-  /* Custom tooltip for the main chart */
-  const MainTooltip = ({ active, payload, label }: any) => {
-    if (active && payload?.length) {
-      const metric = metricCards.find(m => m.key === selectedMetric)
-      const entry = payload[0]
-      return (
-        <div className="rounded-lg border border-border bg-popover p-3 shadow-sm shadow-black/5 min-w-[120px]">
-          <div className="text-[10px] text-muted-foreground mb-1">{label}</div>
-          <div className="flex items-center gap-2 text-sm">
-            <div className="size-1.5 rounded-full" style={{ backgroundColor: entry.color || metric?.color }} />
-            <span className="text-muted-foreground">{metric?.label}:</span>
-            <span className="font-semibold text-popover-foreground font-mono">
-              {metric?.key === 'confidence' || metric?.key === 'resale' ? `${entry.value}` : fmt(entry.value)}
-            </span>
-          </div>
-        </div>
-      )
-    }
-    return null
+    
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(16)
+    doc.text('Positive Drivers', 20, yPos + 10)
+    
+    doc.setFont('helvetica', 'normal')
+    yPos += 20
+    drivers.forEach((f: string) => {
+      doc.text(`• ${f}`, 20, yPos)
+      yPos += 7
+    })
+    
+    doc.save('ExitIQ-Report.pdf')
   }
 
   return (
-    <div className="min-h-screen pt-8 pb-12 px-4 md:px-6 print:bg-white print:text-black print:pt-0">
-      <div className="max-w-6xl mx-auto">
+    <div className="flex h-screen w-full bg-slate-50/50 overflow-hidden font-sans text-slate-900">
+      
+      {/* ── Mobile Sidebar Overlay ── */}
+      {isSidebarOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />
+      )}
 
-        {/* ── Header ── */}
-        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Report Generated</span>
+      {/* ── Sidebar Navbar ── */}
+      <aside className={cn(
+        "fixed md:static inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 flex flex-col transform transition-transform duration-300 ease-in-out h-full",
+        isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+      )}>
+        <div className="h-16 flex items-center justify-between px-6 border-b border-slate-100 shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-blue-500/30">
+              E
             </div>
-            <h1 className="text-xl font-bold text-foreground tracking-tight">Valuation Report</h1>
-            <p className="text-sm text-muted-foreground mt-0.5 font-mono">{input.address} · {input.property_type} · {input.sub_type}</p>
+            <span className="text-xl font-black tracking-tight text-slate-900">ExitIQ</span>
           </div>
-          <div className="flex gap-2 print:hidden">
-            <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-border bg-card text-xs font-medium text-muted-foreground hover:text-foreground hover:border-zinc-600 transition cursor-pointer">
-              <Download className="size-3.5" /> PDF
-            </button>
-            <button onClick={() => downloadJSON({ result: d, debug, input }, 'exitiq-report.json')} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-border bg-card text-xs font-medium text-muted-foreground hover:text-foreground hover:border-zinc-600 transition cursor-pointer">
-              <FileJson className="size-3.5" /> JSON
-            </button>
-          </div>
+          <button className="md:hidden text-slate-400 hover:text-slate-900" onClick={() => setIsSidebarOpen(false)}>
+            <X className="size-5" />
+          </button>
         </div>
 
-        {/* ── Metrics Row (LineChart8-style sparkline cards) ── */}
-        <Card className="mb-4">
-          <CardHeader className="p-0">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-              {metricCards.map((m) => {
-                const change = ((m.value - m.previousValue) / m.previousValue) * 100
-                const isPositive = change >= 0
-                return (
-                  <button
-                    key={m.key}
-                    onClick={() => setSelectedMetric(m.key)}
-                    className={cn(
-                      'cursor-pointer flex-1 text-start p-4 border-b lg:border-b-0 lg:border-r last:border-r-0 last:border-b-0 border-border transition-all',
-                      selectedMetric === m.key && 'bg-muted/50',
-                    )}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-muted-foreground">{m.label}</span>
-                      <Badge variant={isPositive ? 'success' : 'destructive'} appearance="outline" size="sm">
-                        {isPositive ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />}
-                        {Math.abs(change).toFixed(1)}%
-                      </Badge>
-                    </div>
-                    <div className="text-2xl font-bold font-mono">{m.format(m.value)}</div>
-                    <div className="text-xs text-muted-foreground mt-1">from {m.format(m.previousValue)}</div>
-                  </button>
-                )
-              })}
+        <div className="flex-1 overflow-y-auto py-6 px-4 space-y-2">
+          <TabButton icon={LayoutDashboard} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => { setActiveTab('dashboard'); setIsSidebarOpen(false) }} />
+          <TabButton icon={MapIcon} label="Location Analysis" active={activeTab === 'location'} onClick={() => { setActiveTab('location'); setIsSidebarOpen(false) }} />
+          <TabButton icon={FileText} label="Intelligence Report" active={activeTab === 'report'} onClick={() => { setActiveTab('report'); setIsSidebarOpen(false) }} />
+        </div>
+
+        <div className="p-4 border-t border-slate-100 shrink-0">
+          <button onClick={() => downloadJSON({ result: d, debug, input }, 'exitiq-data.json')} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-slate-900 text-white text-sm font-bold shadow-lg shadow-slate-900/20 hover:bg-black transition-all active:scale-95">
+            <Download className="size-4" /> Download JSON
+          </button>
+        </div>
+      </aside>
+
+      {/* ── Main Content Area ── */}
+      <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
+        {/* Header */}
+        <header className="h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center px-4 md:px-8 shrink-0 z-10 sticky top-0">
+          <button className="md:hidden mr-4 p-2 text-slate-600 hover:bg-slate-100 rounded-lg" onClick={() => setIsSidebarOpen(true)}>
+            <Menu className="size-5" />
+          </button>
+          <div>
+            <h1 className="text-lg md:text-xl font-bold text-slate-900 capitalize">{activeTab.replace('-', ' ')}</h1>
+            <p className="text-xs font-medium text-slate-500 hidden sm:block truncate max-w-md">{input?.address}</p>
+          </div>
+        </header>
+
+        {/* Scrollable Body */}
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 relative">
+          <div className="max-w-7xl mx-auto h-full flex flex-col">
+            {activeTab === 'dashboard' && <DashboardView d={d} debug={debug} waterfallData={waterfallData} radarData={radarData} />}
+            {activeTab === 'location' && <LocationView geo={geo} mapQuery={mapQuery} />}
+            {activeTab === 'report' && <ReportView d={d} timeToSell={timeToSell} riskFlags={riskFlags} drivers={drivers} generatePDF={generatePDFReport} />}
+          </div>
+        </div>
+      </main>
+
+    </div>
+  )
+}
+
+/* ── Views ── */
+
+function DashboardView({ d, debug, waterfallData, radarData }: any) {
+  const confPct = Math.round((d?.confidence_score ?? 0) * 100)
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 flex flex-col flex-1 h-full min-h-min">
+      {/* Range Cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6 shrink-0">
+        <RangeCard title="Market Valuation" color="emerald" min={d?.market_value_range?.[0] ?? 0} max={d?.market_value_range?.[1] ?? 0} />
+        <RangeCard title="Distress Valuation" color="amber" min={d?.distress_value_range?.[0] ?? 0} max={d?.distress_value_range?.[1] ?? 0} />
+        <div className="grid grid-cols-2 gap-4">
+          <StatCard label="Confidence" value={`${confPct}%`} subValue={confPct > 80 ? "High" : "Moderate"} icon={Shield} color="sky" />
+          <StatCard label="Liquidity" value={`${d?.resale_potential_index ?? 0}/100`} subValue={(d?.resale_potential_index ?? 0) > 70 ? "Liquid" : "Slow"} icon={Clock} color="teal" />
+        </div>
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-[400px]">
+        <Card className="lg:col-span-2 shadow-xl shadow-slate-200/50 border-slate-200/60 flex flex-col">
+          <CardHeader className="pb-2 border-b border-slate-100 bg-slate-50/30 shrink-0">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Valuation Waterfall</h3>
+                <p className="text-[10px] text-slate-500 font-medium">Impact of specific engine adjustments on base value</p>
+              </div>
+              <Badge variant="outline" className="bg-white font-mono text-[10px]">₹/sqft Anchor: {fmt(debug?.circleRate || 0)}</Badge>
             </div>
           </CardHeader>
-
-          {/* ── Main Interactive Line Chart (LineChart6-style) ── */}
-          <CardContent className="px-2.5 py-6">
-            <ChartContainer config={mainChartConfig} className="h-80 w-full overflow-visible [&_.recharts-curve.recharts-tooltip-cursor]:stroke-initial">
-              <LineChart data={mainChartData} margin={{ top: 20, right: 20, left: 5, bottom: 20 }} style={{ overflow: 'visible' }}>
-                <defs>
-                  <pattern id="dotGrid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
-                    <circle cx="10" cy="10" r="1" fill="var(--input)" fillOpacity="1" />
-                  </pattern>
-                  <filter id="lineShadow" x="-100%" y="-100%" width="300%" height="300%">
-                    <feDropShadow dx="4" dy="6" stdDeviation="25" floodColor={`${mainChartConfig[selectedMetric as keyof typeof mainChartConfig]?.color}60`} />
-                  </filter>
-                  <filter id="dotShadow" x="-50%" y="-50%" width="200%" height="200%">
-                    <feDropShadow dx="2" dy="2" stdDeviation="3" floodColor="rgba(0,0,0,0.5)" />
-                  </filter>
-                </defs>
-                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} tickMargin={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} tickMargin={10} tickCount={6}
-                  tickFormatter={(value) => {
-                    const m = metricCards.find(mc => mc.key === selectedMetric)
-                    if (selectedMetric === 'confidence' || selectedMetric === 'resale') return `${value}`
-                    return value >= 1e7 ? (value / 1e7).toFixed(1) + 'Cr' : value >= 1e5 ? (value / 1e5).toFixed(0) + 'L' : String(value)
-                  }}
-                />
-                <ChartTooltip content={<MainTooltip />} cursor={{ strokeDasharray: '3 3', stroke: '#52525a' }} />
-                <rect x="60px" y="-20px" width="calc(100% - 75px)" height="calc(100% - 10px)" fill="url(#dotGrid)" style={{ pointerEvents: 'none' }} />
-                <Line
-                  type="monotone"
-                  dataKey={selectedMetric}
-                  stroke={mainChartConfig[selectedMetric as keyof typeof mainChartConfig]?.color}
-                  strokeWidth={2}
-                  filter="url(#lineShadow)"
-                  dot={false}
-                  activeDot={{ r: 6, fill: mainChartConfig[selectedMetric as keyof typeof mainChartConfig]?.color, stroke: 'white', strokeWidth: 2, filter: 'url(#dotShadow)' }}
-                />
-              </LineChart>
-            </ChartContainer>
+          <CardContent className="pt-6 flex-1 min-h-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={waterfallData} margin={{ top: 20, right: 30, left: 40, bottom: 60 }}>
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 600, fill: '#64748b' }} interval={0} angle={-35} textAnchor="end" />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={(v) => v >= 1e7 ? (v/1e7).toFixed(1)+'Cr' : (v/1e5).toFixed(0)+'L'} />
+                <Tooltip content={<WaterfallTooltip />} cursor={{ fill: 'rgba(0,0,0,0.02)' }} />
+                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                  {waterfallData.map((entry: any, index: number) => (
+                    <Cell key={`cell-${index}`} fill={entry.fill} fillOpacity={entry.isTotal ? 1 : 0.7} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        {/* ── Sparkline Mini-Cards (LineChart8-style) ── */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          {compData.slice(0, 3).map((item, i) => {
-            const sparkData = generateSparkline(item.value * 0.8, item.value, 40)
-            return (
-              <Card key={i}>
-                <CardContent className="flex flex-col gap-4">
-                  <div className="flex flex-col">
-                    <h3 className="text-sm font-semibold text-foreground">{item.name}</h3>
-                    <p className="text-xs text-muted-foreground">Value range endpoint</p>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="text-center">
-                      <div className="text-base font-semibold text-foreground font-mono">{fmt(item.value * 0.8)}</div>
-                      <div className="text-[10px] text-muted-foreground font-medium">Start</div>
-                    </div>
-                    <div className="flex-1 h-14 mx-4 relative">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={sparkData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-                          <YAxis domain={['dataMin', 'dataMax']} hide />
-                          <ReferenceLine y={item.value * 0.9} stroke="var(--input)" strokeWidth={1} strokeDasharray="3 3" />
-                          <Tooltip
-                            cursor={{ stroke: item.color, strokeWidth: 1, strokeDasharray: '2 2' }}
-                            content={({ active, payload }) => {
-                              if (active && payload?.length) {
-                                return (
-                                  <div className="bg-background/95 backdrop-blur-sm border border-border shadow-xl rounded-lg p-2 pointer-events-none z-50">
-                                    <p className="text-xs font-semibold text-foreground">{fmt(payload[0].value as number)}</p>
-                                  </div>
-                                )
-                              }
-                              return null
-                            }}
-                          />
-                          <Line type="monotone" dataKey="value" stroke={item.color} strokeWidth={2} dot={{ r: 0 }}
-                            activeDot={{ r: 4, fill: item.color, stroke: 'white', strokeWidth: 2, filter: `drop-shadow(0 0 6px ${item.color})` }}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-base font-semibold text-foreground font-mono">{fmt(item.value)}</div>
-                      <div className="text-[10px] text-muted-foreground font-medium">End</div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-
-        {/* ── Geo Banner ── */}
-        {geo.enriched && (
-          <Card className="mb-4">
-            <CardContent>
-              <div className="flex items-center gap-2 mb-3">
-                <MapPin className="size-4 text-emerald-500" />
-                <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Geocoded Location</span>
-              </div>
-              <p className="text-sm font-semibold text-foreground mb-3">{geo.resolved_address}</p>
-              {geo.nearest_pois && (
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  {Object.entries(geo.nearest_pois).map(([cat, info]: [string, any]) => (
-                    <Badge key={cat} variant="outline" size="sm" className="font-mono">
-                      {cat}: {info.name} ({info.distance_km}km)
-                    </Badge>
-                  ))}
-                </div>
-              )}
-              {geo.scores && <GeoScores scores={geo.scores} />}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ── Charts + Map Row ── */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          {/* Value Comparison */}
-          <Card>
-            <CardContent>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-4">Value Ranges</div>
-              <div className="h-52">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={compData} layout="vertical" margin={{ top: 0, right: 12, left: 4, bottom: 0 }} barGap={4}>
-                    <XAxis type="number" tickFormatter={(v: number) => v >= 1e7 ? (v / 1e7).toFixed(1) + 'Cr' : v >= 1e5 ? (v / 1e5).toFixed(0) + 'L' : String(v)} stroke="#3f3f46" fontSize={10} tickLine={false} axisLine={false} />
-                    <YAxis type="category" dataKey="name" stroke="#3f3f46" fontSize={10} width={80} tickLine={false} axisLine={false} />
-                    <Tooltip formatter={(v: any) => fmt(v)} contentStyle={tooltipStyle} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
-                    <Bar dataKey="value" radius={[0, 6, 6, 0]} barSize={18}>
-                      {compData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Adjustment Donut */}
-          <Card>
-            <CardContent>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-4">Adjustment Breakdown</div>
-              <div className="h-52">
-                {adjEntries.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={adjEntries} innerRadius={50} outerRadius={75} dataKey="value" paddingAngle={3} strokeWidth={0}>
-                        {adjEntries.map((_, i) => <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
-                      </Pie>
-                      <Tooltip contentStyle={tooltipStyle} formatter={(v: any, name: any) => [`${v}%`, name]} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-full flex items-center justify-center text-xs text-muted-foreground">No adjustment data</div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Map */}
-          <Card className="overflow-hidden">
-            <div className="p-5 pb-0">
-              <div className="flex items-center gap-2 mb-3">
-                <MapPin className="size-3.5 text-muted-foreground" />
-                <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Property Location</span>
-              </div>
+        <Card className="shadow-xl shadow-slate-200/50 border-slate-200/60 flex flex-col">
+          <CardHeader className="pb-2 border-b border-slate-100 bg-slate-50/30 shrink-0">
+            <h3 className="text-sm font-bold text-slate-900">Neighborhood DNA</h3>
+            <p className="text-[10px] text-slate-500 font-medium">Multidimensional location scoring</p>
+          </CardHeader>
+          <CardContent className="pt-6 flex-1 flex flex-col min-h-0">
+            <div className="flex-1 min-h-0 mb-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
+                  <PolarGrid stroke="#e2e8f0" />
+                  <PolarAngleAxis dataKey="subject" tick={{ fontSize: 9, fontWeight: 700, fill: '#64748b' }} />
+                  <Radar name="Score" dataKey="A" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.5} dot={{ r: 3, fill: '#3b82f6' }} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                </RadarChart>
+              </ResponsiveContainer>
             </div>
-            <iframe className="w-full h-72 border-0" src={`https://www.google.com/maps?q=${mapQuery}&output=embed`} allowFullScreen loading="lazy" referrerPolicy="no-referrer-when-downgrade" title="Map"
-              style={{ filter: 'saturate(0.8) brightness(0.95)' }}
-            />
-          </Card>
+            <div className="space-y-2 shrink-0">
+              {radarData.map((r: any, i: number) => (
+                <div key={i} className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-500 truncate w-20">{r.subject}</span>
+                  <div className="flex-1 mx-3 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                     <div className="h-full bg-blue-500" style={{ width: `${r.A}%` }} />
+                  </div>
+                  <span className="text-[10px] font-black text-slate-900 w-8 text-right">{r.A}%</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
 
-          {/* Timeline + Tags */}
-          <Card>
-            <CardContent className="flex flex-col gap-5">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <Clock className="size-3.5 text-muted-foreground" />
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Time to Sell</span>
-                </div>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-3xl font-bold font-mono text-foreground">{d.estimated_time_to_sell_days[0]}–{d.estimated_time_to_sell_days[1]}</span>
-                  <span className="text-sm text-muted-foreground font-medium">days</span>
-                </div>
-                <div className="mt-2 h-1.5 rounded-full bg-secondary overflow-hidden">
-                  <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-sky-500 transition-all" style={{ width: `${Math.min(100, 100 - (d.estimated_time_to_sell_days[0] / 365) * 100)}%` }} />
-                </div>
-              </div>
-
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">Key Drivers</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {d.key_drivers.map((t: string, i: number) => (
-                    <Badge key={i} variant="success" appearance="outline" size="sm" className="font-mono">{t}</Badge>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">Risk Flags</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {d.risk_flags.length > 0
-                    ? d.risk_flags.map((t: string, i: number) => (
-                      <Badge key={i} variant="destructive" appearance="outline" size="sm" className="font-mono">{t}</Badge>
-                    ))
-                    : <span className="text-xs text-emerald-500/60 font-medium">✓ No significant risks</span>}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+function LocationView({ geo, mapQuery }: any) {
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 flex flex-col lg:flex-row gap-6 h-full min-h-[600px]">
+      <div className="w-full lg:w-1/3 flex flex-col gap-4 overflow-y-auto pr-2">
+        <h2 className="text-2xl font-black text-slate-900 mb-2">Location Intelligence</h2>
+        
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2"><MapPin className="size-4" /> Resolved Address</div>
+          <p className="text-sm font-semibold text-slate-700 leading-relaxed">{geo.resolved_address || 'Address not resolved'}</p>
         </div>
 
-        {/* ── Debug ── */}
-        <div className="mt-4 print:hidden">
-          <button onClick={() => setShowDebug(!showDebug)} className="px-4 py-2 rounded-lg border border-border bg-card text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground hover:border-zinc-600 transition cursor-pointer">
-            {showDebug ? '▾ Hide' : '▸ Show'} Engine Internals
-          </button>
-          {showDebug && (
-            <pre className="mt-3 p-5 rounded-xl border border-border bg-card font-mono text-[11px] text-muted-foreground overflow-auto max-h-80 leading-relaxed">{JSON.stringify(debug, null, 2)}</pre>
-          )}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Geospatial Insights</div>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+              <span className="text-sm text-slate-600 font-medium">Zone Category</span>
+              <Badge className="bg-blue-50 text-blue-700 hover:bg-blue-100 border-none capitalize">{geo.zone || 'Unknown'}</Badge>
+            </div>
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+              <span className="text-sm text-slate-600 font-medium">Nearby Amenities</span>
+              <span className="font-bold text-slate-900">{geo.total_pois || 0} POIs</span>
+            </div>
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+              <span className="text-sm text-slate-600 font-medium">Avg Distance</span>
+              <span className="font-bold text-slate-900">{((geo.avg_distance || 0)/1000).toFixed(2)} km</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-slate-600 font-medium">Coordinates</span>
+              <span className="font-mono text-xs text-slate-500 bg-slate-50 px-2 py-1 rounded">{geo.coords?.lat?.toFixed(4)}, {geo.coords?.lon?.toFixed(4)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-emerald-50 p-5 rounded-2xl border border-emerald-100 shadow-sm">
+          <div className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2">Location Premium</div>
+          <div className="text-3xl font-black text-emerald-700">{(geo.scores?.location_premium || 0).toFixed(2)}x</div>
+          <p className="text-xs text-emerald-600/80 mt-1 font-medium">Multiplier applied to base valuation</p>
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden min-h-[400px]">
+        <div className="p-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-slate-50/50">
+          <div className="flex items-center gap-2">
+            <MapIcon className="size-4 text-blue-500" />
+            <span className="text-sm font-bold text-slate-700">Interactive Map</span>
+          </div>
+          <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider">Live View</Badge>
+        </div>
+        <div className="flex-1 w-full bg-slate-100 relative">
+          <iframe className="absolute inset-0 w-full h-full border-0" src={`https://www.google.com/maps?q=${mapQuery}&output=embed`} allowFullScreen loading="lazy" referrerPolicy="no-referrer-when-downgrade" title="Map"
+            style={{ filter: 'contrast(1.1) saturate(1.2)' }}
+          />
         </div>
       </div>
     </div>
   )
 }
 
-function GeoScores({ scores }: { scores: any }) {
-  const items = [
-    { label: 'Infrastructure', key: 'infra_score', color: '#3b82f6' },
-    { label: 'Commercial', key: 'commercial_score', color: '#f59e0b' },
-    { label: 'Livability', key: 'livability_score', color: '#10b981' },
-    { label: 'Premium', key: 'location_premium', color: '#06b6d4' },
-  ]
+function ReportView({ d, timeToSell, riskFlags, drivers, generatePDF }: any) {
   return (
-    <div className="space-y-1.5">
-      {items.map(({ label, key, color }) => {
-        const val = scores[key] != null ? (scores[key] * 100).toFixed(0) : null
-        if (val === null) return null
-        return (
-          <div key={key} className="flex items-center gap-3">
-            <span className="text-[10px] font-medium text-muted-foreground w-20">{label}</span>
-            <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-700" style={{ width: val + '%', background: color }} />
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 flex flex-col lg:flex-row gap-8 h-full">
+      <div className="w-full lg:w-1/2 flex flex-col gap-6">
+        
+        {/* Liquidity */}
+        <Card className="shadow-lg border-slate-200/60 bg-gradient-to-br from-white to-slate-50/50">
+          <CardHeader className="pb-2 border-b border-slate-100">
+             <div className="flex items-center gap-2">
+               <Activity className="size-5 text-teal-500" />
+               <h3 className="text-lg font-bold text-slate-900">Liquidity Horizon</h3>
+             </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <p className="text-xs font-bold uppercase text-slate-400 tracking-wider mb-2">Estimated Days to Sell</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-5xl font-black text-slate-900 tracking-tighter">{timeToSell[0]}–{timeToSell[1]}</span>
+              <span className="text-lg font-bold text-slate-400">Days</span>
             </div>
-            <span className="text-[10px] font-mono font-semibold w-8 text-right" style={{ color }}>{val}%</span>
-          </div>
-        )
-      })}
+            <div className="mt-6 h-3 rounded-full bg-slate-100 overflow-hidden relative shadow-inner">
+               <div className="absolute inset-y-0 bg-gradient-to-r from-teal-400 to-teal-500 rounded-full shadow-sm" style={{ left: '20%', width: '40%' }} />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Positive Drivers */}
+        <Card className="shadow-lg border-emerald-100 bg-emerald-50/30">
+          <CardHeader className="pb-3 border-b border-emerald-100/50">
+             <div className="flex items-center gap-2">
+               <TrendingUp className="size-5 text-emerald-600" />
+               <h3 className="text-lg font-bold text-emerald-900">Positive Drivers</h3>
+             </div>
+          </CardHeader>
+          <CardContent className="pt-5">
+            <ul className="space-y-3">
+              {drivers.length > 0 ? drivers.map((k: string, i: number) => (
+                <li key={i} className="flex items-start gap-3 text-sm font-semibold text-emerald-800">
+                  <CheckCircle2 className="size-5 text-emerald-500 shrink-0 mt-0.5" />
+                  <span className="capitalize leading-relaxed">{k}</span>
+                </li>
+              )) : (
+                <li className="text-sm text-emerald-600 italic">No specific positive drivers identified.</li>
+              )}
+            </ul>
+          </CardContent>
+        </Card>
+
+        {/* Risk Flags */}
+        <Card className="shadow-lg border-red-100 bg-red-50/30">
+          <CardHeader className="pb-3 border-b border-red-100/50">
+             <div className="flex items-center gap-2">
+               <Shield className="size-5 text-red-600" />
+               <h3 className="text-lg font-bold text-red-900">Key Risk Flags</h3>
+             </div>
+          </CardHeader>
+          <CardContent className="pt-5">
+             <ul className="space-y-3">
+               {riskFlags.length > 0 ? riskFlags.map((f: string, i: number) => (
+                 <li key={i} className="flex items-start gap-3 text-sm font-semibold text-red-800">
+                    <Info className="size-5 text-red-500 shrink-0 mt-0.5" />
+                    <span className="capitalize leading-relaxed">{f}</span>
+                 </li>
+               )) : (
+                 <li className="flex items-center gap-2 text-sm font-bold text-emerald-700 bg-emerald-100 p-3 rounded-xl">
+                    <Shield className="size-4" /> Verified: Low Legal & Structural Risk
+                 </li>
+               )}
+             </ul>
+          </CardContent>
+        </Card>
+
+      </div>
+
+      <div className="w-full lg:w-1/2 flex flex-col items-center justify-center bg-white rounded-3xl border border-slate-200 shadow-xl p-8 lg:p-12 text-center min-h-[400px]">
+        <div className="w-24 h-24 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-6 shadow-inner">
+          <FileText className="size-10" />
+        </div>
+        <h3 className="text-2xl font-bold text-slate-900 mb-3">Valuation Summary Report</h3>
+        <p className="text-slate-500 font-medium mb-8 max-w-sm">A comprehensive PDF document summarizing how the ExitIQ engine came to these conclusions, ready for sharing or record-keeping.</p>
+        
+        <button onClick={generatePDF} className="inline-flex items-center gap-3 px-8 py-4 rounded-2xl bg-blue-600 text-white font-bold text-lg shadow-xl shadow-blue-500/30 hover:bg-blue-700 hover:-translate-y-1 transition-all active:scale-95 w-full sm:w-auto justify-center">
+          <Download className="size-6" /> Download PDF Report
+        </button>
+      </div>
     </div>
   )
+}
+
+/* ── UI Components ── */
+
+function TabButton({ icon: Icon, label, active, onClick }: any) {
+  return (
+    <button onClick={onClick} className={cn(
+      "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-left",
+      active ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+    )}>
+      <Icon className={cn("size-5", active ? "text-blue-600" : "text-slate-400")} />
+      {label}
+    </button>
+  )
+}
+
+function StatCard({ label, value, subValue, icon: Icon, color }: any) {
+  const colors: any = {
+    emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+    amber: 'bg-amber-50 text-amber-600 border-amber-100',
+    sky: 'bg-sky-50 text-sky-600 border-sky-100',
+    teal: 'bg-teal-50 text-teal-600 border-teal-100'
+  }
+  return (
+    <Card className="shadow-lg shadow-slate-200/40 border-slate-200/60 transition-transform hover:-translate-y-1 duration-300">
+      <CardContent className="pt-6">
+        <div className="flex items-start justify-between mb-3">
+          <div className={cn("p-2.5 rounded-xl border", colors[color])}>
+            <Icon className="size-5" />
+          </div>
+        </div>
+        <h4 className="text-[11px] font-bold uppercase text-slate-400 tracking-widest mb-1">{label}</h4>
+        <div className="text-2xl font-black text-slate-900 tracking-tighter font-mono">{value}</div>
+        <p className="text-[10px] font-bold text-slate-500 mt-1">{subValue}</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function RangeCard({ title, min, max, color }: { title: string, min: number, max: number, color: 'emerald' | 'amber' }) {
+  const isUp = color === 'emerald'
+  const sparkline = generateSparkline(min, max, 40)
+  
+  return (
+    <Card className="shadow-xl shadow-slate-200/50 border-slate-200/60 flex flex-col h-full overflow-hidden">
+      <CardHeader className="pb-0 pt-5 px-6">
+        <div className="flex items-center gap-2">
+          {isUp ? <TrendingUp className="size-5 text-emerald-500" /> : <ArrowDown className="size-5 text-amber-500" />}
+          <h3 className="text-sm font-bold text-slate-900">{title}</h3>
+        </div>
+        <p className="text-[10px] text-slate-500 font-medium">Value range estimate</p>
+      </CardHeader>
+      <CardContent className="flex-1 flex flex-col justify-center pt-4 pb-6 px-6">
+        <div className="flex items-end justify-between w-full gap-4">
+          
+          <div className="flex flex-col">
+            <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">Low End</span>
+            <span className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tighter">{fmt(min)}</span>
+          </div>
+
+          <div className="flex-1 h-12 relative px-2 hidden sm:block">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={sparkline}>
+                <Line type="monotone" dataKey="value" stroke={isUp ? "#10b981" : "#f59e0b"} strokeWidth={2} dot={false} />
+                <ReferenceLine y={(min+max)/2} stroke="#e2e8f0" strokeDasharray="3 3" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          
+          <div className="flex flex-col items-end">
+            <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">High End</span>
+            <span className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tighter">{fmt(max)}</span>
+          </div>
+
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function WaterfallTooltip({ active, payload }: any) {
+  if (active && payload?.length) {
+    const data = payload[0].payload
+    return (
+      <div className="bg-white p-3 border border-slate-200 shadow-xl rounded-xl">
+        <p className="text-[10px] font-black uppercase text-slate-400 mb-1">{data.name}</p>
+        <p className={cn("text-sm font-black font-mono", data.value >= 0 ? "text-emerald-600" : "text-red-600")}>
+          {data.value >= 0 ? '+' : ''}{fmt(data.displayValue)}
+        </p>
+      </div>
+    )
+  }
+  return null
 }

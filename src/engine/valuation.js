@@ -40,7 +40,7 @@ function computeMarketValue(f) {
   else if (f.legalClarity >= 0.40) adjustments.legal = -0.08;
   else                              adjustments.legal = -0.15;
 
-  adjustments.image_quality = f.imageFeatures.available
+  adjustments.image_insights = f.imageFeatures.available
     ? (f.imageFeatures.quality_score - 0.5) * 0.10
     : 0.00;
 

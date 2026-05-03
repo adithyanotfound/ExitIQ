@@ -212,7 +212,10 @@ function ageBucket(age) {
 
 // ── Image Feature Stub ────────────────────────────────────────────────────
 function computeImageFeatures(images) {
-  if (!images || images.length === 0) {
+  const hasExterior = images?.exterior && images.exterior.length > 0;
+  const hasInterior = images?.interior && images.interior.length > 0;
+  
+  if (!hasExterior && !hasInterior) {
     return { available: false, quality_score: null, condition_proxy: null, mismatch_flag: false };
   }
   return {

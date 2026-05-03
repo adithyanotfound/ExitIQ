@@ -294,6 +294,21 @@ export default function Form({ onResult }: FormProps) {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8">
+      {/* ── Fullscreen Loading Overlay ── */}
+      {loading && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-slate-900/90 backdrop-blur-xl animate-in fade-in duration-500">
+          <div className="relative flex items-center justify-center mb-8">
+            <div className="absolute w-32 h-32 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            <div className="absolute w-24 h-24 border-4 border-emerald-400 border-b-transparent rounded-full animate-[spin_1.5s_linear_infinite_reverse]"></div>
+            <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(59,130,246,0.5)]">
+              <Building2 className="size-8 text-blue-600 animate-pulse" />
+            </div>
+          </div>
+          <h2 className="text-3xl font-black text-white tracking-tight mb-2">Synthesizing Intelligence...</h2>
+          <p className="text-blue-200 font-medium text-center max-w-sm px-4">Processing geospatial parameters, visual evidence, and live market dynamics.</p>
+        </div>
+      )}
+
       {/* ── Photo Upload View ── */}
       <div className={cn("w-full max-w-3xl animate-in fade-in zoom-in-95 duration-500", !showPhotoUpload && "hidden")}>
         <div className="bg-white rounded-3xl shadow-2xl shadow-blue-900/10 border border-border/50 overflow-hidden flex flex-col">
