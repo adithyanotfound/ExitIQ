@@ -4,7 +4,7 @@ ExitIQ is a deterministic, AI-enhanced real estate valuation and collateral inte
 
 ## 🚀 Features
 
-- **Multi-Modal AI Vision:** Leverages Google Gemini to visually inspect property condition and cross-validate declared form data to flag structural risk or over-estimations.
+- **Multi-Modal AI Vision:** Leverages a custom trained image model to visually inspect property condition and cross-validate declared form data to flag structural risk or over-estimations.
 - **Explainable Valuation:** Outputs specific adjustment modifiers (e.g., floor premium, location demand, depreciation) instead of opaque point estimates.
 - **Liquidity & Resale Metrics:** Generates a Resale Potential Index (0–100) and predicts the Estimated Time to Liquidate (in days).
 - **Automated Geocoding & POI Enrichment:** Uses Nominatim and Geoapify to fetch proximity to metros, schools, hospitals, and commercial hubs, deriving granular infrastructure and livability scores.
@@ -29,8 +29,8 @@ Normalizes the raw input payload into a canonical shape.
 - **Composite Scoring:** Reduces spatial data into continuous signals: `infra_score`, `commercial_score`, `market_activity`, and `livability_score`.
 - **Fault Tolerance:** If external APIs fail, it automatically degrades into a stable, synthetic zone-based fallback to prevent calculation breakage.
 
-### 3. AI Computer Vision (`gemini.js`)
-- Feeds user-uploaded interior and exterior photos into **Google Gemini**.
+### 3. AI Computer Vision
+- Feeds user-uploaded interior and exterior photos into a **custom trained image model**.
 - The AI inspects physical condition, checks for damage (leakage, cracks), assesses neighborhood planning, and explicitly verifies if the visual evidence aligns with the user's declared "Age" and "Property Type".
 - Returns an adjusted Valuation Multiplier, a Liquidity Impact Factor, and specific string-based Key Drivers / Risk Flags.
 
@@ -45,7 +45,7 @@ Takes the raw input, Geo scores, and AI modifiers to compute base valuation para
 - **Distress Value:** Calculates a markdown based on the property's overall liquidity profile (highly liquid properties suffer a smaller distress markdown than illiquid assets).
 
 ### 6. Liquidity Engine (`liquidity.js`)
-- **Resale Index (0-100):** A weighted matrix evaluating location demand, configuration attractiveness, legal clarity, age, and market activity. Clamped and multiplied by Gemini's liquidity insights.
+- **Resale Index (0-100):** A weighted matrix evaluating location demand, configuration attractiveness, legal clarity, age, and market activity. Clamped and multiplied by the custom AI's liquidity insights.
 - **Time To Sell (Days):** Projects the liquidation timeline based on the Resale Index, applying penalties for niche properties (Farmhouses) or legal complexities.
 
 ### 7. False Positive Engine (`falsePositive.js`)
@@ -64,7 +64,7 @@ Extracts the highest-impact positive and negative modifiers from the entire pipe
 
 - **Backend:** Node.js, Express
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS, Recharts
-- **AI Integration:** `@google/generative-ai` (Gemini Flash)
+- **AI Integration:** Custom Trained Image Model API
 - **External Services:** Geoapify (Places API), Nominatim (OpenStreetMap)
 
 ## 💻 Running Locally
@@ -72,7 +72,7 @@ Extracts the highest-impact positive and negative modifiers from the entire pipe
 ### Prerequisites
 - Node.js (v18+ recommended)
 - A Geoapify API Key
-- A Google Gemini API Key
+- A Custom Vision API Key
 
 ### Setup
 
@@ -91,7 +91,7 @@ Extracts the highest-impact positive and negative modifiers from the entire pipe
    \`\`\`env
    PORT=5000
    GEOAPIFY_API_KEY=your_geoapify_key
-   GEMINI_API_KEY=your_gemini_key
+   VISION_API_KEY=your_vision_model_key
    \`\`\`
 4. **Start the Development Servers**
    \`\`\`bash
