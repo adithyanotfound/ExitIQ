@@ -15,7 +15,6 @@ function computeResaleIndex(f) {
     configuration:         f.fungibility,
     legal_clarity:         f.legalClarity,
     age_condition:         f.depreciationFactor,
-    fungibility:           f.fungibility,
     rental_attractiveness: f.rentalYield > 0.04 ? 0.85 : f.rentalYield > 0.02 ? 0.60 : f.incomeStability,
     market_activity:       f.marketActivity,
     accessibility:         f.accessibility.lift ? 0.80 : f.accessibility.ground_floor_access ? 0.70 : 0.40,
@@ -24,7 +23,8 @@ function computeResaleIndex(f) {
   let raw = weightedSum(scores, LIQUIDITY_WEIGHTS);
   
   if (f.geminiData?.liquidity_impact_factor) {
-    raw *= f.geminiData.liquidity_impact_factor;
+    const aiFactor = clamp(f.geminiData.liquidity_impact_factor, 0.5, 1.5);
+    raw *= aiFactor;
   }
   
   return Math.round(clamp(raw * 100, 0, 100));

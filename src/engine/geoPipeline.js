@@ -335,9 +335,8 @@ function computeLiquiditySignal(locationPremium, totalPOIs, subType) {
 // ══════════════════════════════════════════════════════════════
 async function analyzeLocation(address, subType) {
   if (!API_KEY) {
-    console.error('⚠️  Set GEOAPIFY_API_KEY in .env');
-    console.error('    Get a free key at: https://myprojects.geoapify.com/');
-    return { error: 'Missing GEOAPIFY_API_KEY', address };
+    console.warn('⚠️  Missing GEOAPIFY_API_KEY. Using stable synthetic fallback.');
+    return buildSyntheticGeoData(address, subType, 'Missing GEOAPIFY_API_KEY');
   }
 
   // --- Geocode ---
@@ -347,8 +346,8 @@ async function analyzeLocation(address, subType) {
     geo = await geocodeAddress(address);
     console.log(`✓ Geocoded "${address}" → (${geo.lat}, ${geo.lon})`);
   } catch (err) {
-    console.error(`✗ Geocoding error: ${err.message}`);
-    return { error: err.message, address };
+    console.warn(`✗ Geocoding error: ${err.message}. Using stable synthetic fallback.`);
+    return buildSyntheticGeoData(address, subType, err.message);
   }
 
   // --- Fetch POIs for all categories in parallel ---
@@ -424,6 +423,47 @@ async function analyzeLocation(address, subType) {
       location_premium:  +locationPremium.toFixed(4),
       liquidity_signal:  +liquiditySignal.toFixed(4),
     },
+  };
+}
+
+function buildSyntheticGeoData(address, subType, errorMsg) {
+  // Try to detect zone from address string to provide a stable fallback
+  const addr = address.toLowerCase();
+  let zone = 'suburban';
+  const primeKws = ['bandra', 'juhu', 'south mumbai', 'connaught', 'indiranagar', 'dlf', 'sector 17'];
+  const urbanKws = ['thane', 'dwarka', 'rohini', 'noida', 'gurgaon', 'new town'];
+  
+  if (primeKws.some(k => addr.includes(k))) zone = 'prime';
+  else if (urbanKws.some(k => addr.includes(k))) zone = 'urban';
+
+  const baseScores = {
+    prime: { infra: 0.85, comm: 0.80, market: 0.85, live: 0.80, nq: 0.85, prem: 0.90, liq: 0.85 },
+    urban: { infra: 0.70, comm: 0.65, market: 0.70, live: 0.70, nq: 0.70, prem: 0.75, liq: 0.70 },
+    suburban: { infra: 0.50, comm: 0.45, market: 0.50, live: 0.50, nq: 0.50, prem: 0.55, liq: 0.50 }
+  };
+  
+  const b = baseScores[zone] || baseScores.suburban;
+
+  return {
+    address,
+    location: { lat: 0, lon: 0, display_name: address },
+    error: errorMsg,
+    is_synthetic_fallback: true,
+    total_pois: zone === 'prime' ? 30 : zone === 'urban' ? 15 : 5,
+    neighbourhood_attributes: {
+      is_mixed_use: zone === 'prime' || zone === 'urban',
+      is_planned_proxy: zone === 'prime' || zone === 'urban',
+      high_broker_density: zone === 'prime',
+    },
+    scores: {
+      infra_score: b.infra,
+      commercial_score: b.comm,
+      market_activity: b.market,
+      livability_score: b.live,
+      neighbourhood_quality: b.nq,
+      location_premium: b.prem,
+      liquidity_signal: b.liq
+    }
   };
 }
 

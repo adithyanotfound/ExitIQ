@@ -65,7 +65,7 @@ function computeDepreciation(age) {
     totalDep += effectiveYears * band.annualRate;
     remaining -= effectiveYears;
   }
-  return clamp(1 - totalDep, 0.40, 1.0);
+  return clamp(1 - totalDep, 0.65, 1.0);
 }
 
 // ── Floor Adjustment ────────────────────────────────────────────────────────
@@ -239,8 +239,11 @@ function engineerFeatures(input, geoData) {
   const marketActivity       = computeMarketActivity(zone, input.sub_type, geoData);
   const neighbourhoodQuality = computeNeighbourhoodQuality(zone, input.address, geoData);
 
+  const MARKET_RATE_FACTOR = { prime: 2.25, urban: 1.8, suburban: 1.35, periurban: 1.1, rural: 0.9 };
+  const adjustedRate = circleRate * (MARKET_RATE_FACTOR[zone] || 1.0);
+
   const locationPremium = {
-    prime: 1.40, urban: 1.15, suburban: 1.00, periurban: 0.85, rural: 0.70,
+    prime: 2.0, urban: 1.6, suburban: 1.25, periurban: 1.0, rural: 0.8,
   }[zone] || 1.00;
 
   // B – Property characteristics
@@ -253,7 +256,7 @@ function engineerFeatures(input, geoData) {
   const legalClarity = computeLegalClarity(input.legal_status);
 
   // D – Income & Usage
-  const roughBaseValue      = circleRate * input._effective_area;
+  const roughBaseValue      = adjustedRate * input._effective_area;
   const rentalYield         = computeRentalYield(input.rent_monthly, roughBaseValue);
   const incomeStability     = computeIncomeStability(input.occupancy_status, input.rent_monthly);
 
@@ -286,7 +289,8 @@ function engineerFeatures(input, geoData) {
   return {
     // Location
     zone,
-    circleRate,
+    circleRate: adjustedRate, // exporting adjustedRate as circleRate so downstream uses real market baselines
+    baseCircleRate: circleRate,
     locationPremium,
     infraScore,
     marketActivity,

@@ -16,6 +16,11 @@ const VALID_OCCUPANCY = ['self_occupied', 'rented', 'vacant'];
  * Validate and normalise raw input.
  * Returns { valid: true, data: normalised } or { valid: false, errors: [] }
  */
+function safeNumber(val, fallback = 0) {
+  const num = Number(val);
+  return (isNaN(num) || num === null || num === undefined) ? fallback : num;
+}
+
 function validateInput(raw) {
   const errors = [];
 
@@ -54,16 +59,16 @@ function validateInput(raw) {
     property_type:    raw.property_type,
     sub_type:         raw.sub_type,
     size: {
-      carpet_area_sqft:  Math.max(0, Number(size.carpet_area_sqft)  || 0),
-      builtup_area_sqft: Math.max(0, Number(size.builtup_area_sqft) || 0),
-      land_parcel_sqft:  Math.max(0, Number(size.land_parcel_sqft)  || 0),
+      carpet_area_sqft:  Math.max(0, safeNumber(size.carpet_area_sqft)),
+      builtup_area_sqft: Math.max(0, safeNumber(size.builtup_area_sqft)),
+      land_parcel_sqft:  Math.max(0, safeNumber(size.land_parcel_sqft)),
     },
-    age_years:        Math.max(0, Number(raw.age_years) || 0),
+    age_years:        Math.max(0, safeNumber(raw.age_years)),
 
     // Floor fields — numeric
-    floor_from:              Math.max(0, Math.floor(Number(raw.floor_from) || 0)),
-    floor_to:                Math.max(0, Math.floor(Number(raw.floor_to)   || Number(raw.floor_from) || 0)),
-    total_building_floors:   raw.total_building_floors ? Math.max(1, Math.floor(Number(raw.total_building_floors))) : null,
+    floor_from:              Math.max(0, Math.floor(safeNumber(raw.floor_from))),
+    floor_to:                Math.max(0, Math.floor(safeNumber(raw.floor_to, safeNumber(raw.floor_from)))),
+    total_building_floors:   raw.total_building_floors ? Math.max(1, Math.floor(safeNumber(raw.total_building_floors, 1))) : null,
 
     accessibility: {
       lift:               Boolean(raw.accessibility?.lift),
@@ -72,7 +77,7 @@ function validateInput(raw) {
     occupancy_status: VALID_OCCUPANCY.includes(raw.occupancy_status)
                         ? raw.occupancy_status
                         : 'vacant',
-    rent_monthly:     Math.max(0, Number(raw.rent_monthly) || 0),
+    rent_monthly:     Math.max(0, safeNumber(raw.rent_monthly)),
     legal_status: {
       // Enforce mutual exclusion: if both are true, prefer freehold
       freehold:    raw.legal_status?.freehold    !== false,
@@ -120,8 +125,8 @@ function validateInput(raw) {
     data.floor_areas = raw.floor_areas
       .filter(fa => fa && typeof fa === 'object')
       .map(fa => ({
-        floor:     Math.floor(Number(fa.floor) || 0),
-        area_sqft: Math.max(0, Number(fa.area_sqft) || 0),
+        floor:     Math.floor(safeNumber(fa.floor)),
+        area_sqft: Math.max(0, safeNumber(fa.area_sqft)),
       }))
       .filter(fa => fa.area_sqft > 0 && fa.floor >= data.floor_from && fa.floor <= data.floor_to);
 
@@ -171,10 +176,16 @@ function validateInput(raw) {
 
   // Derived: effective area — uses plot footprint as the base for valuation
   // (total built area is used separately for the floor multiplier)
-  data._effective_area =
-    data._plot_footprint ||
-    data.size.builtup_area_sqft ||
-    data.size.land_parcel_sqft;
+  const isApartment = ['Apartment', 'Penthouse', 'Studio', 'Shop', 'Office'].includes(data.sub_type);
+  if (isApartment) {
+    data._effective_area = data.size.builtup_area_sqft || data.size.carpet_area_sqft || data.size.land_parcel_sqft;
+    data._builtup_floor_multiplier = 1.0; // Apartments are area-based, no plot floor multiplier
+  } else {
+    data._effective_area =
+      data._plot_footprint ||
+      data.size.builtup_area_sqft ||
+      data.size.land_parcel_sqft;
+  }
 
   // Derived: built-up to carpet ratio
   if (data.size.carpet_area_sqft > 0 && data.size.builtup_area_sqft > 0) {

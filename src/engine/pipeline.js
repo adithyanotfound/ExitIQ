@@ -52,10 +52,10 @@ async function runPipeline(rawInput) {
   // 7. Confidence calibration
   let confidence = computeConfidence(features, fpResult);
 
-  // Legal-risk suppression: cap market value upside, force wider distress
+  // Legal-risk suppression: reduce market value upside moderately, lower confidence
   if (fpResult.legalRisk) {
-    marketValue.upper = Math.min(marketValue.upper, marketValue.midValue);
-    confidence = Math.min(confidence, 0.65);
+    marketValue.upper = Math.round(marketValue.midValue + (marketValue.upper - marketValue.midValue) * 0.5);
+    confidence = Math.min(confidence, 0.75);
   }
 
   // 8. Output

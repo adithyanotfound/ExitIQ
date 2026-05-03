@@ -11,8 +11,13 @@ const { clamp, roundToLakh } = require('../utils/helpers');
 function computeMarketValue(f) {
   // Base value = circle rate × plot footprint (NOT total carpet across all floors)
   // For multi-floor: additional floors add built-up value via multiplier
-  const plotBase = f.circleRate * f.effectiveArea;
+  const plotBase = (f.circleRate || 0) * (f.effectiveArea || 0);
   const baseValue = plotBase * (f.builtupFloorMultiplier || 1.0);
+
+  if (baseValue === 0 || isNaN(baseValue)) {
+    // Failsafe against absolute zero base
+    return { lower: 0, upper: 0, midValue: 0, baseValue: 0, adjustments: {} };
+  }
 
   const adjustments = {};
 
@@ -40,11 +45,7 @@ function computeMarketValue(f) {
   else if (f.legalClarity >= 0.40) adjustments.legal = -0.08;
   else                              adjustments.legal = -0.15;
 
-  adjustments.image_insights = f.imageFeatures.available
-    ? (f.imageFeatures.quality_score - 0.5) * 0.10
-    : 0.00;
-
-  adjustments.price_momentum = f.priceMomentum;
+  adjustments.price_momentum = f.priceMomentum || 0;
 
   const rawAdj = Object.values(adjustments).reduce((s, v) => s + v, 0);
   // Clamp total adjustment so value never drops below 20% of circle-rate anchor

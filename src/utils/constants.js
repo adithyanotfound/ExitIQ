@@ -70,12 +70,11 @@ const FLOOR_ADJUSTMENTS = {
 const LIQUIDITY_WEIGHTS = {
   location_demand:      0.20,
   infrastructure:       0.12,
-  configuration:        0.12,
+  configuration:        0.17,
   legal_clarity:        0.15,
   age_condition:        0.10,
-  fungibility:          0.10,
   rental_attractiveness:0.08,
-  market_activity:      0.08,
+  market_activity:      0.13,
   accessibility:        0.05,
 };
 
