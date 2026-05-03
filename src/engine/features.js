@@ -118,14 +118,14 @@ function computeInfraScoreSynthetic(address, zone) {
 // ── Market Activity ───────────────────────────────────────────────────────
 // Uses real commercial_score when available; falls back to zone-based
 function computeMarketActivity(zone, subType, geoData) {
-  if (isGeoEnriched(geoData) && geoData.scores?.commercial_score != null) {
-    // Blend real commercial activity with zone baseline for robustness
-    const geoCommercial = geoData.scores.commercial_score;
+  if (isGeoEnriched(geoData) && geoData.scores?.market_activity != null) {
+    // Blend real market activity (brokers + banks + commercial) with zone baseline
+    const geoActivity = geoData.scores.market_activity;
     const zoneBase = { prime: 0.90, urban: 0.72, suburban: 0.50, periurban: 0.35, rural: 0.20 };
     const base = zoneBase[zone] || 0.45;
 
-    // 70% real, 30% zone base
-    const blended = geoCommercial * 0.70 + base * 0.30;
+    // 80% real data (now sharper with brokers), 20% zone base
+    const blended = geoActivity * 0.80 + base * 0.20;
     const subtypeBoost = HIGH_FUNGIBILITY_SUBTYPES.includes(subType) ? 0.06 : -0.03;
     return clamp(blended + subtypeBoost, 0.1, 1.0);
   }
@@ -148,15 +148,20 @@ function computeFungibility(subType, effectiveArea) {
 }
 
 // ── Neighbourhood Quality ─────────────────────────────────────────────────
-// Now uses livability_score when available
+// Now uses neighbourhood_quality score from pipeline (planning + mixed-use balance)
 function computeNeighbourhoodQuality(zone, address, geoData) {
   const zoneBase = { prime: 0.88, urban: 0.70, suburban: 0.55, periurban: 0.40, rural: 0.30 };
   let base = zoneBase[zone] || 0.50;
 
   if (isGeoEnriched(geoData) && geoData.scores) {
-    // Use livability_score (schools + hospitals + supermarkets + restaurants)
+    // Use neighbourhood_quality from geoPipeline (includes planning + mixed-use balance)
+    if (geoData.scores.neighbourhood_quality != null) {
+      // Blend with zone base: 75% real, 25% zone
+      return clamp(geoData.scores.neighbourhood_quality * 0.75 + base * 0.25, 0.1, 1.0);
+    }
+
+    // Fallback to livability
     if (geoData.scores.livability_score != null) {
-      // Blend livability with zone base: 65% real, 35% zone
       return clamp(geoData.scores.livability_score * 0.65 + base * 0.35, 0.1, 1.0);
     }
 
@@ -291,6 +296,10 @@ function engineerFeatures(input, geoData) {
     geoScores: geoData?.scores || null,
     geoDensity: geoData?.density || null,
     geoTotalPOIs: geoData?.total_pois || 0,
+    neighbourhoodAttributes: geoData?.neighbourhood_attributes || {
+      is_mixed_use: false,
+      is_planned_proxy: false,
+    },
 
     // Property
     subtypeMultiplier,

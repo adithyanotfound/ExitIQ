@@ -16,6 +16,7 @@
  */
 
 const axios = require('axios');
+const { clamp } = require('../utils/helpers');
 
 // ══════════════════════════════════════════════════════════════
 // CONFIG — key loaded from .env via dotenv (loaded in server.js)
@@ -40,7 +41,16 @@ const CATEGORY_MAP = {
   mall:        'commercial.shopping_mall,commercial.marketplace,commercial.department_store,commercial.supermarket',
   supermarket: 'commercial.supermarket',
   restaurant:  'catering.restaurant',
-  office:      'building.office',
+  office:      'office',
+
+  // Neighbourhood Quality Indicators
+  residential: 'accommodation',
+  park:        'leisure.park,leisure.playground',
+  leisure:     'leisure',
+
+  // Market Activity Proxies
+  broker:      'service.estate_agent',
+  bank:        'service.financial.bank',
 };
 
 // Search radii per category (metres)
@@ -48,6 +58,8 @@ const SEARCH_RADIUS = {
   metro: 3000,    bus_stop: 2000,   rail: 5000,
   hospital: 3000, school: 2000,
   mall: 3000,     supermarket: 2000, restaurant: 1500, office: 2000,
+  residential: 2000, park: 2500, leisure: 2000,
+  broker: 3000,   bank: 2000,
 };
 
 // ══════════════════════════════════════════════════════════════
@@ -223,6 +235,27 @@ function computeCommercialScore(density) {
 }
 
 /**
+ * Market Activity Score (0–1)
+ * Proxy for transaction velocity: Brokers + Financial Intensity + Commercial activity
+ */
+function computeMarketActivityScore(density, scores) {
+  const brokerCount = density.broker || 0;
+  const bankCount   = density.bank || 0;
+
+  // 1. Broker Density (Log scaled, cap at 15 agents for max score)
+  const brokerPart = Math.min(Math.log(1 + brokerCount) / Math.log(16), 1.0);
+
+  // 2. Financial Density (Presence of banks/finance offices)
+  const financialPart = Math.min(bankCount / 10, 1.0);
+
+  // 3. Proximity to nearest broker
+  const brokerProximity = scores.broker || 0;
+
+  // Combined Market Activity: 40% Broker Density, 30% Proximity, 30% Finance Intensity
+  return 0.40 * brokerPart + 0.30 * brokerProximity + 0.30 * financialPart;
+}
+
+/**
  * Livability Score (0–1)
  * Schools + hospitals + supermarkets + restaurants nearby
  */
@@ -244,6 +277,44 @@ function computeLivabilityScore(scores, density) {
  */
 function computeLocationPremium(infraScore, commercialScore, livabilityScore) {
   return 0.45 * infraScore + 0.30 * commercialScore + 0.25 * livabilityScore;
+}
+
+/**
+ * Neighbourhood Quality Score (0–1)
+ * Derived from planning status (amenity diversity) + zoning balance (residential vs mixed-use)
+ */
+function computeNeighbourhoodQualityScore(density, componentScores, categories) {
+  // 1. Planning Score (Diversity of amenities)
+  const presentCategories = categories.filter((cat) => density[cat] > 0).length;
+  const diversityIndex = presentCategories / categories.length;
+
+  // Quality markers (Parks, social infra)
+  const qualityMarkers = (componentScores.park || 0) * 0.6 + (componentScores.school || 0) * 0.4;
+  const planningScore = diversityIndex * 0.5 + qualityMarkers * 0.5;
+
+  // 2. Zoning Score (Residential vs Mixed-Use)
+  const resCount = density.residential || 0;
+  const commCount =
+    (density.mall || 0) +
+    (density.supermarket || 0) +
+    (density.restaurant || 0) +
+    (density.office || 0);
+
+  const totalRelevant = resCount + commCount;
+  let zoningScore = 0.5; // default
+
+  if (totalRelevant > 0) {
+    const mixedUseRatio = commCount / totalRelevant;
+    // Ideal mixed-use balance is around 0.3 - 0.7 for urban quality
+    // We reward balance and penalize extreme single-use
+    zoningScore = clamp(1.0 - Math.abs(mixedUseRatio - 0.5) * 1.5, 0.2, 1.0);
+  }
+
+  return {
+    score: +(0.6 * planningScore + 0.4 * zoningScore).toFixed(4),
+    is_mixed_use: resCount > 0 && commCount > 0,
+    is_planned_proxy: planningScore > 0.6,
+  };
 }
 
 /**
@@ -323,7 +394,9 @@ async function analyzeLocation(address, subType) {
   // --- Composite scores ---
   const infraScore       = computeInfraScore(componentScores);
   const commercialScore  = computeCommercialScore(density);
+  const marketActivity   = computeMarketActivityScore(density, componentScores);
   const livabilityScore  = computeLivabilityScore(componentScores, density);
+  const nqsData          = computeNeighbourhoodQualityScore(density, componentScores, categories);
   const locationPremium  = computeLocationPremium(infraScore, commercialScore, livabilityScore);
   const liquiditySignal  = computeLiquiditySignal(locationPremium, totalPOIs, subType);
 
@@ -333,6 +406,11 @@ async function analyzeLocation(address, subType) {
     nearest,
     density,
     total_pois: totalPOIs,
+    neighbourhood_attributes: {
+      is_mixed_use: nqsData.is_mixed_use,
+      is_planned_proxy: nqsData.is_planned_proxy,
+      high_broker_density: (density.broker || 0) > 8,
+    },
     scores: {
       // Per-category component scores
       ...componentScores,
@@ -340,7 +418,9 @@ async function analyzeLocation(address, subType) {
       // Composite scores
       infra_score:       +infraScore.toFixed(4),
       commercial_score:  +commercialScore.toFixed(4),
+      market_activity:   +marketActivity.toFixed(4),
       livability_score:  +livabilityScore.toFixed(4),
+      neighbourhood_quality: nqsData.score,
       location_premium:  +locationPremium.toFixed(4),
       liquidity_signal:  +liquiditySignal.toFixed(4),
     },
