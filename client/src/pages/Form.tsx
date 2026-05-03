@@ -87,9 +87,18 @@ export default function Form({ onResult }: FormProps) {
   const navigate = useNavigate()
 
   // For controlled/uncontrolled hybrid (Steps 1-5 use uncontrolled DOM reads for simplicity, Step 0 uses React state for strict mutually exclusive logic)
-  const v = (id: string) => (formRef.current?.querySelector<HTMLInputElement>(`#${id}`)?.value || '').trim()
-  const n = (id: string) => parseFloat(formRef.current?.querySelector<HTMLInputElement>(`#${id}`)?.value || '') || 0
-  const c = (id: string) => formRef.current?.querySelector<HTMLInputElement>(`#${id}`)?.checked || false
+  const v = (id: string) => {
+    const el = formRef.current?.querySelector(`#${id}`) as HTMLInputElement | HTMLSelectElement;
+    return (el?.value || '').trim();
+  }
+  const n = (id: string) => {
+    const el = formRef.current?.querySelector(`#${id}`) as HTMLInputElement | HTMLSelectElement;
+    return parseFloat(el?.value || '') || 0;
+  }
+  const c = (id: string) => {
+    const el = formRef.current?.querySelector(`#${id}`) as HTMLInputElement;
+    return el?.checked || false;
+  }
 
   // --- Location Logic ---
   function handleLocMethodChange(method: LocMode) {
@@ -215,6 +224,8 @@ export default function Form({ onResult }: FormProps) {
       if (!v('carpet')) errs.push('Carpet Area is required.')
     } else if (s === 3) {
       if (!v('age')) errs.push('Building Age is required.')
+    } else if (s === 4) {
+      if (!v('occ')) errs.push('Occupancy Status is required.')
     }
     
     if (errs.length > 0) {
@@ -231,9 +242,11 @@ export default function Form({ onResult }: FormProps) {
   async function handleSubmit(e?: React.FormEvent) {
     if (e) e.preventDefault()
     
-    for (let i = 0; i <= step; i++) {
+    // Validate EVERYTHING before proceeding to photos, regardless of current step
+    for (let i = 0; i < STEPS.length; i++) {
       if (!validateStep(i)) {
         setStep(i)
+        setShowPhotoUpload(false)
         return
       }
     }
@@ -243,10 +256,11 @@ export default function Form({ onResult }: FormProps) {
       return
     }
 
-    if (exteriorImages.length === 0 || interiorImages.length === 0) {
-      setErrors(['Please upload at least 1 exterior and 1 interior photo to continue.'])
-      return
-    }
+    // Photos are now optional
+    // if (exteriorImages.length === 0 || interiorImages.length === 0) {
+    //   setErrors(['Please upload at least 1 exterior and 1 interior photo to continue.'])
+    //   return
+    // }
 
     setLoading(true); setErrors(null)
     const payload = {
@@ -278,10 +292,11 @@ export default function Form({ onResult }: FormProps) {
     finally { setLoading(false) }
   }
 
-  if (showPhotoUpload) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8 animate-in fade-in zoom-in-95 duration-500">
-        <div className="w-full max-w-3xl bg-white rounded-3xl shadow-2xl shadow-blue-900/10 border border-border/50 overflow-hidden flex flex-col">
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8">
+      {/* ── Photo Upload View ── */}
+      <div className={cn("w-full max-w-3xl animate-in fade-in zoom-in-95 duration-500", !showPhotoUpload && "hidden")}>
+        <div className="bg-white rounded-3xl shadow-2xl shadow-blue-900/10 border border-border/50 overflow-hidden flex flex-col">
           <div className="p-8 sm:p-12 text-center">
             <div className="w-20 h-20 bg-blue-50 text-primary rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
               <Camera className="size-10" />
@@ -297,7 +312,7 @@ export default function Form({ onResult }: FormProps) {
                     <Building2 className="size-5" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-slate-800">Exterior Photos <span className="text-red-500">*</span></h3>
+                    <h3 className="font-bold text-slate-800">Exterior Photos</h3>
                     <p className="text-[11px] text-slate-500">Building, surroundings, road access</p>
                   </div>
                 </div>
@@ -336,7 +351,7 @@ export default function Form({ onResult }: FormProps) {
                     <Layers className="size-5" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-slate-800">Interior Photos <span className="text-red-500">*</span></h3>
+                    <h3 className="font-bold text-slate-800">Interior Photos</h3>
                     <p className="text-[11px] text-slate-500">Rooms, kitchen, bathroom, condition</p>
                   </div>
                 </div>
@@ -388,334 +403,310 @@ export default function Form({ onResult }: FormProps) {
           </div>
         </div>
       </div>
-    )
-  }
 
-  return (
-    <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8">
-      <div className={cn("flex flex-col xl:flex-row items-stretch gap-6 transition-all duration-500 w-full", (locMethod === 'map' && step === 0) ? "max-w-[1600px]" : "max-w-4xl")}>
-        
+      {/* ── Main Form View ── */}
+      <div className={cn("flex flex-col xl:flex-row items-stretch gap-6 transition-all duration-500 w-full", showPhotoUpload && "hidden", (locMethod === 'map' && step === 0) ? "max-w-[1600px]" : "max-w-4xl")}>
         <div className={cn("w-full bg-white rounded-2xl shadow-xl shadow-blue-900/5 border border-white/80 overflow-hidden flex flex-col shrink-0 transition-all duration-500", (locMethod === 'map' && step === 0) ? "xl:max-w-3xl" : "max-w-4xl")}>
           <form ref={formRef} onSubmit={handleSubmit} autoComplete="off" noValidate>
-          <div className="flex min-h-[540px]">
-            {/* ── Left Sidebar — Step Indicator ── */}
-            <div className="w-56 shrink-0 bg-slate-50/80 border-r border-border p-6 flex flex-col hidden md:flex">
-              <div className="mb-6">
-                <h2 className="text-lg font-bold text-foreground">Property Info</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">Complete each section</p>
-              </div>
-              <div className="space-y-1 flex-1">
-                {STEPS.map((s, i) => {
-                  const Icon = s.icon
-                  const isDone = i < step
-                  const isActive = i === step
-                  return (
-                    <button key={s.id} type="button" onClick={() => { if(isDone || i===step-1) setStep(i) }}
-                      className={cn(
-                        'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all',
-                        isActive ? 'bg-primary/10 text-primary' : isDone ? 'text-foreground hover:bg-slate-100 cursor-pointer' : 'text-muted-foreground cursor-not-allowed'
-                      )}
-                      disabled={!isDone && !isActive}
-                    >
-                      <div className={cn(
-                        'w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-semibold transition-all',
-                        isActive ? 'bg-primary text-white shadow-md shadow-blue-500/30' :
-                        isDone ? 'bg-emerald-100 text-emerald-600 border border-emerald-200' :
-                        'bg-slate-100 text-slate-400 border border-border'
-                      )}>
-                        {isDone ? '✓' : <Icon className="size-3.5" />}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-[13px] font-semibold truncate">{s.label}</div>
-                        <div className="text-[10px] text-muted-foreground truncate">{s.desc}</div>
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
-              <div className="text-[10px] text-muted-foreground mt-4">
-                Step {step + 1} of {STEPS.length}
-              </div>
-            </div>
-
-            {/* ── Right Content ── */}
-            <div className="flex-1 flex flex-col relative z-0 min-w-0">
-              <div className="flex-1 p-6 md:p-8">
-                {/* Mobile Step Indicator */}
-                <div className="md:hidden flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-1 rounded-md">Step {step + 1} of {STEPS.length}</span>
-                    <span className="text-sm font-semibold text-slate-700">{STEPS[step].label}</span>
-                  </div>
+            <div className="flex min-h-[540px]">
+              {/* Sidebar */}
+              <div className="w-56 shrink-0 bg-slate-50/80 border-r border-border p-6 flex flex-col hidden md:flex">
+                <div className="mb-6">
+                  <h2 className="text-lg font-bold text-foreground">Property Info</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">Complete each section</p>
                 </div>
-                {/* Errors */}
-                {errors && (
-                  <div className="mb-5 p-3 rounded-xl bg-red-50 border border-red-200">
-                    {errors.map((e, i) => <p key={i} className="text-xs text-red-600">{e}</p>)}
-                  </div>
-                )}
-
-                {/* Step 0 — Location */}
-                <div className={cn(step !== 0 && 'hidden')}>
-                  <StepHeading title="Property Location" subtitle="How would you like to locate the property?" />
-                  
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6 mb-8">
-                    <button type="button" onClick={() => handleLocMethodChange('address')} className={cn("p-4 rounded-xl border text-left transition-all cursor-pointer", locMethod === 'address' ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary" : "border-border hover:border-slate-300")}>
-                      <div className="text-sm font-semibold text-slate-900">Address</div>
-                      <div className="text-[10px] text-slate-500 mt-1">Manual entry</div>
-                    </button>
-                    <button type="button" onClick={() => handleLocMethodChange('latlng')} className={cn("p-4 rounded-xl border text-left transition-all cursor-pointer", locMethod === 'latlng' ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary" : "border-border hover:border-slate-300")}>
-                      <div className="text-sm font-semibold text-slate-900">Coordinates</div>
-                      <div className="text-[10px] text-slate-500 mt-1">Lat & Long</div>
-                    </button>
-                    <button type="button" onClick={() => handleLocMethodChange('map')} className={cn("p-4 rounded-xl border text-left transition-all cursor-pointer", locMethod === 'map' ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary" : "border-border hover:border-slate-300")}>
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm font-semibold text-slate-900">Map Pin</div>
-                        <Map className="size-4 text-primary" />
-                      </div>
-                      <div className="text-[10px] text-slate-500 mt-1">Interactive map</div>
-                    </button>
-                  </div>
-
-                  <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    {locMethod === 'address' && (
-                      <Field id="address" label="Property Address" tip={TIPS.address}>
-                        <input id="address" value={address} onChange={e => setAddress(e.target.value)} placeholder="e.g. Sector 8, Rohini, New Delhi 110085" className={inputCls} />
-                      </Field>
-                    )}
-                    {locMethod === 'latlng' && (
-                      <>
-                        <Field id="lat" label="Latitude" tip={TIPS.lat}>
-                          <input id="lat" type="number" step="any" value={lat} onChange={e => setLat(e.target.value)} placeholder="28.7041" className={inputCls} />
-                        </Field>
-                        <Field id="lng" label="Longitude" tip={TIPS.lng}>
-                          <input id="lng" type="number" step="any" value={lng} onChange={e => setLng(e.target.value)} placeholder="77.1025" className={inputCls} />
-                        </Field>
-                      </>
-                    )}
-                    {locMethod === 'map' && (
-                      <div className="p-4 sm:p-5 rounded-xl border border-primary/20 bg-primary/5 transition-all flex flex-col gap-4 items-start">
-                        <div className="flex items-center gap-3 sm:gap-4 w-full">
-                          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                            {mapAddressLoading ? <Loader2 className="size-5 sm:size-6 text-primary animate-spin" /> : <MapPin className="size-5 sm:size-6 text-primary" />}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-semibold text-slate-900 truncate mb-0.5">
-                              {mapAddressLoading ? 'Acquiring Signal...' : (lat && lng ? `${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}` : 'Location pending')}
-                            </div>
-                            <div className="text-xs text-slate-500 truncate">
-                              {mapAddressLoading ? 'Please allow permissions...' : (address || 'Drag the map to select your location')}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center w-full mt-1">
-                          <button type="button" onClick={fetchGPSLocation} disabled={mapAddressLoading} className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-700 hover:text-primary hover:border-primary/30 shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all">
-                            <LocateFixed className="size-4" /> Use Current Location
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Step 1 — Classification */}
-                <div className={cn(step !== 1 && 'hidden')}>
-                  <StepHeading title="Property Classification" subtitle="Select the property type and sub-type" />
-                  <div className="space-y-5 mt-6">
-                    <Field id="ptype" label="Property Type" tip={TIPS.ptype} required>
-                      <select id="ptype" className={selectCls}>
-                        <option value="">Select type</option>
-                        <option value="Residential">Residential</option>
-                        <option value="Commercial">Commercial</option>
-                        <option value="Industrial">Industrial</option>
-                      </select>
-                    </Field>
-                    <Field id="stype" label="Sub-type" tip={TIPS.stype} required>
-                      <select id="stype" className={selectCls}>
-                        <option value="">Select sub-type</option>
-                        {SUBTYPES.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    </Field>
-                  </div>
-                </div>
-
-                {/* Step 2 — Dimensions */}
-                <div className={cn(step !== 2 && 'hidden')}>
-                  <StepHeading title="Dimensions" subtitle="Enter area measurements in square feet" />
-                  <div className="space-y-5 mt-6">
-                    <Field id="carpet" label="Carpet Area" tip={TIPS.carpet} required>
-                      <input id="carpet" type="number" min="0" placeholder="1050" className={inputCls} />
-                    </Field>
-                    <Field id="builtup" label="Built-up Area" tip={TIPS.builtup}>
-                      <input id="builtup" type="number" min="0" placeholder="1250" className={inputCls} />
-                    </Field>
-                    <Field id="land" label="Land Area" tip={TIPS.land}>
-                      <input id="land" type="number" min="0" placeholder="0" className={inputCls} />
-                    </Field>
-                  </div>
-                </div>
-
-                {/* Step 3 — Structure */}
-                <div className={cn(step !== 3 && 'hidden')}>
-                  <StepHeading title="Structure Details" subtitle="Building age, floors, and accessibility" />
-                  <div className="space-y-5 mt-6">
-                    <Field id="age" label="Age (years)" tip={TIPS.age} required>
-                      <input id="age" type="number" min="0" placeholder="8" className={inputCls} />
-                    </Field>
-                    <Field id="tfloors" label="Total Floors" tip={TIPS.tfloors}>
-                      <input id="tfloors" type="number" min="1" placeholder="14" value={tfloors} onChange={e => handleTfloorsChange(e.target.value)} className={inputCls} />
-                    </Field>
-                    <Field id="ffrom" label="Floor Number" tip="The starting floor of the property (0 for ground)">
-                      <input id="ffrom" type="number" min="0" placeholder="0" value={ffrom} onChange={e => {
-                        const val = e.target.value ? parseInt(e.target.value) : '';
-                        setFfrom(val);
-                        if (val !== '' && fto === '') setFto(val);
-                        else if (val !== '' && typeof fto === 'number' && fto < val) setFto(val);
-                      }} className={inputCls} />
-                    </Field>
-                    <Field id="num_floors" label="Number of Floors" tip="How many floors does this property span? (e.g., 1 for typical apartment, 2 for duplex)">
-                      <input id="num_floors" type="number" min="1" placeholder="1" value={typeof fto === 'number' && typeof ffrom === 'number' ? Math.max(1, fto - ffrom + 1) : 1} onChange={e => {
-                        const span = parseInt(e.target.value) || 1;
-                        if (typeof ffrom === 'number') {
-                          setFto(ffrom + Math.max(1, span) - 1);
-                        }
-                      }} className={inputCls} />
-                    </Field>
-                    <Field id="lift_gaccess" label="Accessibility" tip="Indicate if the building has a lift or ground floor access.">
-                      <div className="flex gap-3">
-                        <Chip id="lift" label="Lift" checked={lift} onChange={setLift} disabled={tfloors === 1} />
-                        <Chip id="gaccess" label="Ground Access" checked={gaccess} onChange={setGaccess} disabled={tfloors === 1} />
-                      </div>
-                    </Field>
-                    
-                    {numUnitFloors > 1 && (
-                      <div className="pt-5 border-t border-border mt-6 animate-in fade-in slide-in-from-top-2">
-                        <div className="flex items-center justify-between mb-4">
-                          <div>
-                            <label className="text-sm font-semibold text-slate-900 block">Area Distribution</label>
-                            <span className="text-[10px] text-slate-500">Configure area per floor</span>
-                          </div>
-                          <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 bg-slate-50 px-3 py-1.5 rounded-lg border border-border hover:bg-slate-100 transition">
-                            <input type="checkbox" checked={sameArea} onChange={e => setSameArea(e.target.checked)} className="rounded border-slate-300 text-primary focus:ring-primary" />
-                            All floors have same area
-                          </label>
-                        </div>
-                        {!sameArea && (
-                          <div className="space-y-3 pl-4 border-l-[3px] border-primary/20 py-1">
-                            {Array.from({ length: numUnitFloors }).map((_, i) => {
-                              const floorNum = startF + i
-                              return (
-                                <div key={floorNum} className="flex items-center gap-4 bg-slate-50/50 p-2 rounded-lg border border-border/50">
-                                  <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
-                                    {floorNum === 0 ? 'G' : floorNum}
-                                  </div>
-                                  <span className="text-sm font-medium text-slate-700 w-20">Floor {floorNum}</span>
-                                  <input type="number" placeholder="Carpet Area (sqft)" value={floorAreas[floorNum] || ''} onChange={e => setFloorAreas({ ...floorAreas, [floorNum]: e.target.value })} className={cn(inputCls, 'py-2 text-sm')} />
-                                </div>
-                              )
-                            })}
-                          </div>
+                <div className="space-y-1 flex-1">
+                  {STEPS.map((s, i) => {
+                    const Icon = s.icon
+                    const isDone = i < step
+                    const isActive = i === step
+                    return (
+                      <button key={s.id} type="button" onClick={() => { if(isDone || i===step-1) setStep(i) }}
+                        className={cn(
+                          'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all',
+                          isActive ? 'bg-primary/10 text-primary' : isDone ? 'text-foreground hover:bg-slate-100 cursor-pointer' : 'text-muted-foreground cursor-not-allowed'
                         )}
-                      </div>
-                    )}
-                  </div>
+                        disabled={!isDone && !isActive}
+                      >
+                        <div className={cn(
+                          'w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-semibold transition-all',
+                          isActive ? 'bg-primary text-white shadow-md shadow-blue-500/30' :
+                          isDone ? 'bg-emerald-100 text-emerald-600 border border-emerald-200' :
+                          'bg-slate-100 text-slate-400 border border-border'
+                        )}>
+                          {isDone ? '✓' : <Icon className="size-3.5" />}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-semibold truncate">{s.label}</div>
+                          <div className="text-[10px] text-muted-foreground truncate">{s.desc}</div>
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
-
-                {/* Step 4 — Occupancy */}
-                <div className={cn(step !== 4 && 'hidden')}>
-                  <StepHeading title="Occupancy & Income" subtitle="Current usage and rental details" />
-                  <div className="space-y-5 mt-6">
-                    <Field id="occ" label="Status" tip={TIPS.occ}>
-                      <select id="occ" className={selectCls}>
-                        <option value="self_occupied">Self Occupied</option>
-                        <option value="rented">Rented</option>
-                        <option value="vacant">Vacant</option>
-                      </select>
-                    </Field>
-                    <Field id="rent" label="Monthly Rent (₹)" tip={TIPS.rent}>
-                      <input id="rent" type="number" min="0" placeholder="25000" className={inputCls} />
-                    </Field>
-                  </div>
-                </div>
-
-                {/* Step 5 — Legal */}
-                <div className={cn(step !== 5 && 'hidden')}>
-                  <StepHeading title="Legal Status" subtitle="Select the legal parameters of the property" />
-                  <div className="space-y-10 mt-8">
-                    
-                    <Field id="ownership_type" label="Ownership Type" tip="This significantly impacts liquidity and valuation.">
-                      <div className="flex flex-col gap-2 pt-1">
-                         <RadioOption id="freehold" name="ownership_type" label="Freehold" desc="Absolute ownership of the property and the land it stands on." checked={ownershipType === 'freehold'} onChange={() => setOwnershipType('freehold')} />
-                         <RadioOption id="leasehold" name="ownership_type" label="Leasehold" desc="Ownership for a fixed period, land belongs to a freeholder." checked={ownershipType === 'leasehold'} onChange={() => setOwnershipType('leasehold')} />
-                      </div>
-                    </Field>
-
-                    <Field id="title_status" label="Title Status" tip="Determines if there are any legal barriers to transfer.">
-                      <div className="flex flex-col gap-2 pt-1">
-                         <RadioOption id="ctitle" name="title_status" label="Clear Title" desc="Legally verified ownership with no pending disputes or liens." checked={titleStatus === 'ctitle'} onChange={() => setTitleStatus('ctitle')} />
-                         <RadioOption id="complications" name="title_status" label="Legal Complications" desc="Pending litigation, disputed ownership, or unclear title." checked={titleStatus === 'complications'} onChange={() => setTitleStatus('complications')} />
-                      </div>
-                    </Field>
-
-                  </div>
-                </div>
-
+                <div className="text-[10px] text-muted-foreground mt-4">Step {step + 1} of {STEPS.length}</div>
               </div>
 
-              {/* ── Footer Navigation ── */}
-              <div className="p-6 md:p-8 bg-slate-50 border-t border-border flex items-center justify-between mt-auto">
-                {step > 0 ? (
-                  <button type="button" onClick={() => setStep(step - 1)} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-slate-200 transition cursor-pointer">
-                    <ChevronLeft className="size-4" /> Back
-                  </button>
-                ) : <div />}
-                
-                {step < STEPS.length - 1 ? (
-                  <button type="button" onClick={goNext} className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition active:scale-[0.98] cursor-pointer">
-                    Continue <ArrowRight className="size-4" />
-                  </button>
-                ) : (
-                  <button type="button" onClick={() => handleSubmit()} className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold shadow-lg shadow-slate-900/20 hover:bg-black transition active:scale-[0.98] cursor-pointer">
-                    Continue to Photos <ArrowRight className="size-4" />
-                  </button>
-                )}
+              {/* Right Content */}
+              <div className="flex-1 flex flex-col relative z-0 min-w-0">
+                <div className="flex-1 p-6 md:p-8">
+                  {/* Mobile Header */}
+                  <div className="md:hidden flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-1 rounded-md">Step {step + 1} of {STEPS.length}</span>
+                      <span className="text-sm font-semibold text-slate-700">{STEPS[step].label}</span>
+                    </div>
+                  </div>
+                  
+                  {errors && (
+                    <div className="mb-5 p-3 rounded-xl bg-red-50 border border-red-200">
+                      {errors.map((e, i) => <p key={i} className="text-xs text-red-600">{e}</p>)}
+                    </div>
+                  )}
+
+                  {/* Step 0 — Location */}
+                  <div className={cn(step !== 0 && 'hidden')}>
+                    <StepHeading title="Property Location" subtitle="How would you like to locate the property?" />
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6 mb-8">
+                      <button type="button" onClick={() => handleLocMethodChange('address')} className={cn("p-4 rounded-xl border text-left transition-all cursor-pointer", locMethod === 'address' ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary" : "border-border hover:border-slate-300")}>
+                        <div className="text-sm font-semibold text-slate-900">Address</div>
+                        <div className="text-[10px] text-slate-500 mt-1">Manual entry</div>
+                      </button>
+                      <button type="button" onClick={() => handleLocMethodChange('latlng')} className={cn("p-4 rounded-xl border text-left transition-all cursor-pointer", locMethod === 'latlng' ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary" : "border-border hover:border-slate-300")}>
+                        <div className="text-sm font-semibold text-slate-900">Coordinates</div>
+                        <div className="text-[10px] text-slate-500 mt-1">Lat & Long</div>
+                      </button>
+                      <button type="button" onClick={() => handleLocMethodChange('map')} className={cn("p-4 rounded-xl border text-left transition-all cursor-pointer", locMethod === 'map' ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary" : "border-border hover:border-slate-300")}>
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm font-semibold text-slate-900">Map Pin</div>
+                          <Map className="size-4 text-primary" />
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-1">Interactive map</div>
+                      </button>
+                    </div>
+
+                    <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                      {locMethod === 'address' && (
+                        <Field id="address" label="Property Address" tip={TIPS.address}>
+                          <input id="address" value={address} onChange={e => setAddress(e.target.value)} placeholder="e.g. Sector 8, Rohini, New Delhi 110085" className={inputCls} />
+                        </Field>
+                      )}
+                      {locMethod === 'latlng' && (
+                        <>
+                          <Field id="lat" label="Latitude" tip={TIPS.lat}>
+                            <input id="lat" type="number" step="any" value={lat} onChange={e => setLat(e.target.value)} placeholder="28.7041" className={inputCls} />
+                          </Field>
+                          <Field id="lng" label="Longitude" tip={TIPS.lng}>
+                            <input id="lng" type="number" step="any" value={lng} onChange={e => setLng(e.target.value)} placeholder="77.1025" className={inputCls} />
+                          </Field>
+                        </>
+                      )}
+                      {locMethod === 'map' && (
+                        <div className="p-4 sm:p-5 rounded-xl border border-primary/20 bg-primary/5 transition-all flex flex-col gap-4 items-start">
+                          <div className="flex items-center gap-3 sm:gap-4 w-full">
+                            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                              {mapAddressLoading ? <Loader2 className="size-5 sm:size-6 text-primary animate-spin" /> : <MapPin className="size-5 sm:size-6 text-primary" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-semibold text-slate-900 truncate mb-0.5">{mapAddressLoading ? 'Acquiring Signal...' : (lat && lng ? `${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}` : 'Location pending')}</div>
+                              <div className="text-xs text-slate-500 truncate">{mapAddressLoading ? 'Please allow permissions...' : (address || 'Drag the map to select your location')}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center w-full mt-1">
+                            <button type="button" onClick={fetchGPSLocation} disabled={mapAddressLoading} className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-700 hover:text-primary hover:border-primary/30 shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+                              <LocateFixed className="size-4" /> Use Current Location
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Step 1 — Classification */}
+                  <div className={cn(step !== 1 && 'hidden')}>
+                    <StepHeading title="Property Classification" subtitle="Select the property type and sub-type" />
+                    <div className="space-y-5 mt-6">
+                      <Field id="ptype" label="Property Type" tip={TIPS.ptype} required>
+                        <select id="ptype" className={selectCls}>
+                          <option value="">Select type</option>
+                          <option value="Residential">Residential</option>
+                          <option value="Commercial">Commercial</option>
+                          <option value="Industrial">Industrial</option>
+                        </select>
+                      </Field>
+                      <Field id="stype" label="Sub-type" tip={TIPS.stype} required>
+                        <select id="stype" className={selectCls}>
+                          <option value="">Select sub-type</option>
+                          {SUBTYPES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </Field>
+                    </div>
+                  </div>
+
+                  {/* Step 2 — Dimensions */}
+                  <div className={cn(step !== 2 && 'hidden')}>
+                    <StepHeading title="Dimensions" subtitle="Enter area measurements in square feet" />
+                    <div className="space-y-5 mt-6">
+                      <Field id="carpet" label="Carpet Area" tip={TIPS.carpet} required>
+                        <input id="carpet" type="number" min="0" placeholder="1050" className={inputCls} />
+                      </Field>
+                      <Field id="builtup" label="Built-up Area" tip={TIPS.builtup}>
+                        <input id="builtup" type="number" min="0" placeholder="1250" className={inputCls} />
+                      </Field>
+                      <Field id="land" label="Land Area" tip={TIPS.land}>
+                        <input id="land" type="number" min="0" placeholder="0" className={inputCls} />
+                      </Field>
+                    </div>
+                  </div>
+
+                  {/* Step 3 — Structure */}
+                  <div className={cn(step !== 3 && 'hidden')}>
+                    <StepHeading title="Structure Details" subtitle="Building age, floors, and accessibility" />
+                    <div className="space-y-5 mt-6">
+                      <Field id="age" label="Age (years)" tip={TIPS.age} required>
+                        <input id="age" type="number" min="0" placeholder="8" className={inputCls} />
+                      </Field>
+                      <Field id="tfloors" label="Total Floors" tip={TIPS.tfloors}>
+                        <input id="tfloors" type="number" min="1" placeholder="14" value={tfloors} onChange={e => handleTfloorsChange(e.target.value)} className={inputCls} />
+                      </Field>
+                      <Field id="ffrom" label="Floor Number" tip="The starting floor of the property (0 for ground)">
+                        <input id="ffrom" type="number" min="0" placeholder="0" value={ffrom} onChange={e => {
+                          const val = e.target.value ? parseInt(e.target.value) : '';
+                          setFfrom(val);
+                          if (val !== '' && fto === '') setFto(val);
+                          else if (val !== '' && typeof fto === 'number' && fto < val) setFto(val);
+                        }} className={inputCls} />
+                      </Field>
+                      <Field id="num_floors" label="Number of Floors" tip="How many floors does this property span? (e.g., 1 for typical apartment, 2 for duplex)">
+                        <input id="num_floors" type="number" min="1" placeholder="1" value={typeof fto === 'number' && typeof ffrom === 'number' ? Math.max(1, fto - ffrom + 1) : 1} onChange={e => {
+                          const span = parseInt(e.target.value) || 1;
+                          if (typeof ffrom === 'number') {
+                            setFto(ffrom + Math.max(1, span) - 1);
+                          }
+                        }} className={inputCls} />
+                      </Field>
+                      <Field id="lift_gaccess" label="Accessibility" tip="Indicate if the building has a lift or ground floor access.">
+                        <div className="flex gap-3">
+                          <Chip id="lift" label="Lift" checked={lift} onChange={setLift} disabled={tfloors === 1} />
+                          <Chip id="gaccess" label="Ground Access" checked={gaccess} onChange={setGaccess} disabled={tfloors === 1} />
+                        </div>
+                      </Field>
+                      
+                      {numUnitFloors > 1 && (
+                        <div className="pt-5 border-t border-border mt-6 animate-in fade-in slide-in-from-top-2">
+                          <div className="flex items-center justify-between mb-4">
+                            <div>
+                              <label className="text-sm font-semibold text-slate-900 block">Area Distribution</label>
+                              <span className="text-[10px] text-slate-500">Configure area per floor</span>
+                            </div>
+                            <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 bg-slate-50 px-3 py-1.5 rounded-lg border border-border hover:bg-slate-100 transition">
+                              <input type="checkbox" checked={sameArea} onChange={e => setSameArea(e.target.checked)} className="rounded border-slate-300 text-primary focus:ring-primary" />
+                              All floors have same area
+                            </label>
+                          </div>
+                          {!sameArea && (
+                            <div className="space-y-3 pl-4 border-l-[3px] border-primary/20 py-1">
+                              {Array.from({ length: numUnitFloors }).map((_, i) => {
+                                const floorNum = startF + i
+                                return (
+                                  <div key={floorNum} className="flex items-center gap-4 bg-slate-50/50 p-2 rounded-lg border border-border/50">
+                                    <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                                      {floorNum === 0 ? 'G' : floorNum}
+                                    </div>
+                                    <span className="text-sm font-medium text-slate-700 w-20">Floor {floorNum}</span>
+                                    <input type="number" placeholder="Carpet Area (sqft)" value={floorAreas[floorNum] || ''} onChange={e => setFloorAreas({ ...floorAreas, [floorNum]: e.target.value })} className={cn(inputCls, 'py-2 text-sm')} />
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Step 4 — Occupancy */}
+                  <div className={cn(step !== 4 && 'hidden')}>
+                    <StepHeading title="Occupancy & Income" subtitle="Current usage and rental details" />
+                    <div className="space-y-5 mt-6">
+                      <Field id="occ" label="Status" tip={TIPS.occ}>
+                        <select id="occ" className={selectCls}>
+                          <option value="self_occupied">Self Occupied</option>
+                          <option value="rented">Rented</option>
+                          <option value="vacant">Vacant</option>
+                        </select>
+                      </Field>
+                      <Field id="rent" label="Monthly Rent (₹)" tip={TIPS.rent}>
+                        <input id="rent" type="number" min="0" placeholder="25000" className={inputCls} />
+                      </Field>
+                    </div>
+                  </div>
+
+                  {/* Step 5 — Legal */}
+                  <div className={cn(step !== 5 && 'hidden')}>
+                    <StepHeading title="Legal Status" subtitle="Select the legal parameters of the property" />
+                    <div className="space-y-10 mt-8">
+                      <Field id="ownership_type" label="Ownership Type" tip="This significantly impacts liquidity and valuation.">
+                        <div className="flex flex-col gap-2 pt-1">
+                          <RadioOption id="freehold" name="ownership_type" label="Freehold" desc="Absolute ownership of the property and the land it stands on." checked={ownershipType === 'freehold'} onChange={() => setOwnershipType('freehold')} />
+                          <RadioOption id="leasehold" name="ownership_type" label="Leasehold" desc="Ownership for a fixed period, land belongs to a freeholder." checked={ownershipType === 'leasehold'} onChange={() => setOwnershipType('leasehold')} />
+                        </div>
+                      </Field>
+                      <Field id="title_status" label="Title Status" tip="Determines if there are any legal barriers to transfer.">
+                        <div className="flex flex-col gap-2 pt-1">
+                          <RadioOption id="ctitle" name="title_status" label="Clear Title" desc="Legally verified ownership with no pending disputes or liens." checked={titleStatus === 'ctitle'} onChange={() => setTitleStatus('ctitle')} />
+                          <RadioOption id="complications" name="title_status" label="Legal Complications" desc="Pending litigation, disputed ownership, or unclear title." checked={titleStatus === 'complications'} onChange={() => setTitleStatus('complications')} />
+                        </div>
+                      </Field>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer Navigation */}
+                <div className="p-6 md:p-8 bg-slate-50 border-t border-border flex items-center justify-between mt-auto">
+                  {step > 0 ? (
+                    <button type="button" onClick={() => setStep(step - 1)} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-slate-200 transition cursor-pointer">
+                      <ChevronLeft className="size-4" /> Back
+                    </button>
+                  ) : <div />}
+                  
+                  {step < STEPS.length - 1 ? (
+                    <button type="button" onClick={goNext} className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition active:scale-[0.98] cursor-pointer">
+                      Continue <ArrowRight className="size-4" />
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => handleSubmit()} className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold shadow-lg shadow-slate-900/20 hover:bg-black transition active:scale-[0.98] cursor-pointer">
+                      Continue to Photos <ArrowRight className="size-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        {/* Map Container (Step 0 side-by-side) */}
+        {locMethod === 'map' && step === 0 && (
+          <div className="w-full xl:flex-1 h-[400px] xl:h-auto self-stretch bg-slate-100 rounded-2xl shadow-xl shadow-blue-900/5 border border-white/80 overflow-hidden relative animate-in fade-in zoom-in-95 duration-500">
+            <MapContainer center={mapCenter} zoom={15} zoomControl={false} className="w-full h-full">
+              <TileLayer attribution='&copy; Google' url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}" />
+              <MapCenterObserver onCenterChange={(c) => { setMapCenter([c.lat, c.lng]); debouncedReverseGeocode(c.lat, c.lng) }} />
+              {flyToCoords && <FlyTo coords={flyToCoords} onDone={() => setFlyToCoords(null)} />}
+            </MapContainer>
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[100%] pointer-events-none z-[400] pb-1 drop-shadow-xl">
+              <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png" alt="pin" className="h-12 -mt-6" />
+            </div>
+            <button type="button" onClick={mapLocateMe} className="absolute bottom-6 right-6 z-[400] w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-slate-700 hover:text-primary transition-colors border border-slate-200">
+              <LocateFixed className="size-5" />
+            </button>
+            <div className="absolute top-6 left-6 right-6 z-[400] pointer-events-none">
+              <div className="bg-white/90 backdrop-blur-md px-4 py-3 rounded-xl shadow-lg border border-slate-200/50">
+                <div className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-0.5">Map Center Location</div>
+                <div className="text-sm font-semibold text-slate-900 line-clamp-2">{mapAddressLoading ? 'Updating...' : mapAddress}</div>
               </div>
             </div>
           </div>
-        </form>
-      </div>
-
-      {/* Map Container (Side-by-side) */}
-      {locMethod === 'map' && step === 0 && (
-        <div className="w-full xl:flex-1 h-[400px] xl:h-auto self-stretch bg-slate-100 rounded-2xl shadow-xl shadow-blue-900/5 border border-white/80 overflow-hidden relative animate-in fade-in zoom-in-95 duration-500">
-          <MapContainer center={mapCenter} zoom={15} zoomControl={false} className="w-full h-full">
-            <TileLayer attribution='&copy; Google' url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}" />
-            <MapCenterObserver onCenterChange={(c) => { setMapCenter([c.lat, c.lng]); debouncedReverseGeocode(c.lat, c.lng) }} />
-            {flyToCoords && <FlyTo coords={flyToCoords} onDone={() => setFlyToCoords(null)} />}
-          </MapContainer>
-          
-          {/* Fixed Center Pin */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[100%] pointer-events-none z-[400] pb-1 drop-shadow-xl">
-            <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png" alt="pin" className="h-12 -mt-6" />
-          </div>
-          
-          {/* Floating Action Button for Map */}
-          <button type="button" onClick={mapLocateMe} className="absolute bottom-6 right-6 z-[400] w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-slate-700 hover:text-primary transition-colors border border-slate-200">
-            <LocateFixed className="size-5" />
-          </button>
-          
-          {/* Address Overlay Badge */}
-          <div className="absolute top-6 left-6 right-6 z-[400] pointer-events-none">
-             <div className="bg-white/90 backdrop-blur-md px-4 py-3 rounded-xl shadow-lg border border-slate-200/50">
-               <div className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-0.5">Map Center Location</div>
-               <div className="text-sm font-semibold text-slate-900 line-clamp-2">
-                 {mapAddressLoading ? 'Updating...' : mapAddress}
-               </div>
-             </div>
-          </div>
-        </div>
-      )}
-
+        )}
       </div>
     </div>
   )

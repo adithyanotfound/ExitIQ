@@ -29,7 +29,7 @@ async function analyzePropertyImages(images, formData) {
 
   if (imageParts.length === 0) return null;
 
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash", generationConfig: { responseMimeType: "application/json" } });
+  const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview", generationConfig: { responseMimeType: "application/json" } });
 
   const prompt = `
 You are an expert real estate valuer and risk assessor.
