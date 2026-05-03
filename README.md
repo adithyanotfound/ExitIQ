@@ -36,17 +36,51 @@ Normalizes the raw input payload into a canonical shape.
 
 ### 4. Feature Engineering (`features.js`)
 Takes the raw input, Geo scores, and AI modifiers to compute base valuation parameters.
-- Translates statutory **Circle Rates** into realistic market rates using a dynamic `MARKET_RATE_FACTOR` tied to the property's zone (Prime, Urban, Suburban, etc.).
-- Computes **Age Depreciation** via a piecewise-linear curve (clamped safely at 65% retained value).
+- **Adjusted Rate:** Translates statutory Circle Rates into realistic market rates using a dynamic `MARKET_RATE_FACTOR` tied to the property's zone:
+  - `Prime = 2.25x`, `Urban = 1.80x`, `Suburban = 1.35x`, `Peri-urban = 1.10x`, `Rural = 0.90x`
+- **Age Depreciation Curve:** Piecewise-linear depreciation applied to built structures.
+  - Rate escalates: `0.5%` (1-2 yrs) → `1.5%` (5-10 yrs) → `2.5%` (20-40 yrs).
+  - Maximum depreciation is clamped safely at **35% loss** (retained structure value = 0.65).
 - Derives **Location Premiums**, Sub-type multipliers, and Fungibility scoring.
 
 ### 5. Valuation Engine (`valuation.js`)
-- **Market Value:** Establishes an anchor `baseValue = adjusted_rate * effective_area`. It then applies all feature adjustments (location, subtype, size scaling, age, infrastructure, floor level, rental yield, legal clarity, and AI condition) to generate a final `midValue`.
-- **Distress Value:** Calculates a markdown based on the property's overall liquidity profile (highly liquid properties suffer a smaller distress markdown than illiquid assets).
+- **Market Value Calculation:**
+  ```javascript
+  plotBase = adjustedCircleRate * effectiveArea;
+  baseValue = plotBase * builtupFloorMultiplier; 
+  // (Note: builtupFloorMultiplier is strictly 1.0 for apartments to prevent double counting)
+
+  totalAdjustments = sum(
+    location_premium, subtype_modifier, size_scaling, 
+    age_depreciation, infrastructure_score, floor_premium, 
+    rental_yield, legal_clarity, price_momentum
+  );
+  totalAdjustments = clamp(totalAdjustments, -0.80, +2.00); // Strict bounds
+
+  midValue = baseValue * (1 + totalAdjustments) * customVisionMultiplier;
+  ```
+- **Distress Value:** Calculates a markdown based on the property's overall liquidity profile:
+  - High Liquidity (>80): **12% – 20% discount**
+  - Medium Liquidity (50-79): **20% – 35% discount**
+  - Low Liquidity (<50): **35% – 50% discount**
 
 ### 6. Liquidity Engine (`liquidity.js`)
-- **Resale Index (0-100):** A weighted matrix evaluating location demand, configuration attractiveness, legal clarity, age, and market activity. Clamped and multiplied by the custom AI's liquidity insights.
-- **Time To Sell (Days):** Projects the liquidation timeline based on the Resale Index, applying penalties for niche properties (Farmhouses) or legal complexities.
+- **Resale Index (0-100):** A weighted matrix representing market absorption speed.
+  - `location_demand` (20%)
+  - `configuration` (17%)
+  - `legal_clarity` (15%)
+  - `market_activity` (13%)
+  - `infrastructure` (12%)
+  - `age_condition` (10%)
+  - `rental_attractiveness` (8%)
+  - `accessibility` (5%)
+  
+  The raw sum is clamped and multiplied by the custom AI's `liquidity_impact_factor` (clamped between 0.5x and 1.5x) to adjust for visual condition.
+- **Time To Sell (Days):** Projects the liquidation timeline based on the Resale Index:
+  - High: **15 - 45 days**
+  - Medium: **45 - 120 days**
+  - Low: **120 - 365 days**
+  *(Penalties are explicitly added for niche properties like Farmhouses or legal complexities).*
 
 ### 7. False Positive Engine (`falsePositive.js`)
 - Runs a battery of sanity checks:
