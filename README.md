@@ -2,6 +2,8 @@
 
 ExitIQ is a deterministic, AI-enhanced real estate valuation and collateral intelligence platform. It replaces black-box ML models with an explainable, multi-stage rules engine that calculates accurate market values, distress pricing, and property liquidity metrics, cross-validated by computer vision.
 
+### NOTE: Please unmute the video before playing.
+
 https://github.com/user-attachments/assets/16ed1c52-d62a-4a53-90dc-647704541b2d
 
 ## 🚀 Features
