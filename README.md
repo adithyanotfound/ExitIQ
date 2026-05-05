@@ -6,7 +6,7 @@ ExitIQ is a deterministic, AI-enhanced real estate valuation and collateral inte
 
 https://github.com/user-attachments/assets/16ed1c52-d62a-4a53-90dc-647704541b2d
 
-## 🚀 Features
+## Features
 
 - **Multi-Modal AI Vision:** Leverages a custom trained image model to visually inspect property condition and cross-validate declared form data to flag structural risk or over-estimations.
 - **Explainable Valuation:** Outputs specific adjustment modifiers (e.g., floor premium, location demand, depreciation) instead of opaque point estimates.
@@ -16,7 +16,7 @@ https://github.com/user-attachments/assets/16ed1c52-d62a-4a53-90dc-647704541b2d
 
 ---
 
-## 🧠 The Valuation Pipeline Explained
+## The Valuation Pipeline Explained
 
 The backend orchestrates the valuation through a strict, deterministic sequence in `src/engine/pipeline.js`:
 
@@ -98,14 +98,14 @@ Extracts the highest-impact positive and negative modifiers from the entire pipe
 
 ---
 
-## 🛠 Tech Stack
+## Tech Stack
 
 - **Backend:** Node.js, Express
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS, Recharts
 - **AI Integration:** Custom Trained Image Model API
 - **External Services:** Geoapify (Places API), Nominatim (OpenStreetMap)
 
-## 💻 Running Locally
+## Running Locally
 
 ### Prerequisites
 - Node.js (v18+ recommended)
@@ -115,30 +115,34 @@ Extracts the highest-impact positive and negative modifiers from the entire pipe
 ### Setup
 
 1. **Clone the repository**
+
 2. **Install dependencies**
-   \`\`\`bash
+   ```bash
    # Install backend deps
    npm install
 
    # Install frontend deps
    cd client
    npm install
-   \`\`\`
-3. **Environment Variables**
-   Create a \`.env\` file in the root directory:
-   \`\`\`env
+   ```
+
+3. **Environment Variables**  
+   Create a `.env` file in the root directory:
+   ```env
    PORT=5000
    GEOAPIFY_API_KEY=your_geoapify_key
    VISION_API_KEY=your_vision_model_key
-   \`\`\`
+   ```
+
 4. **Start the Development Servers**
-   \`\`\`bash
+   ```bash
    # From the root directory, start the backend
    npm run dev
 
    # From the /client directory, start the frontend
+   cd client
    npm run dev
-   \`\`\`
+   ```
 
-## 🛡 Disclaimer
+## Disclaimer
 *This system generates deterministic automated valuation models (AVM) for guidance and analytical purposes. It is not a replacement for a certified physical appraisal.*
